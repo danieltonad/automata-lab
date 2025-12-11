@@ -54,63 +54,56 @@ def save_shorts_json(shorts: List[ShortInfo], filepath: Path) -> None:
 
 
 
-async def grab_short_info(url: str) -> ShortInfo:
+async def grab_short_info(page, url: str) -> ShortInfo:
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
-            await page.goto(url, timeout=60000)
+        await page.goto(url, timeout=60000)
+        
+        short_title = page.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--link-inherit-color"]')
+        stats_elem = 'span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--text-alignment-center yt-core-attributed-string--word-wrapping"]'
+        stats_elem = page.locator(stats_elem)
+        await stats_elem.first.wait_for(state="visible", timeout=10000)
+        stats_texts = await stats_elem.all_inner_texts()
+        likes, comment_count = stats_texts[0], stats_texts[2]
 
-            short_title = page.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--link-inherit-color"]')
-            stats_elem = 'span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--text-alignment-center yt-core-attributed-string--word-wrapping"]'
-            stats_elem = page.locator(stats_elem)
-            await stats_elem.first.wait_for(state="visible", timeout=10000)
-            stats_texts = await stats_elem.all_inner_texts()
-            likes, comment_count = stats_texts[0], stats_texts[2]
+        description = page.locator('div[class*="style-scope ytd-video-description-header-renderer"]') 
+        description = description.locator('div[class*="ytwFactoidRendererFactoid"]')
+        n = await description.count()
+        aria_labels = []
+        for i in range(n):
+            # Get the i-th element and extract aria-label
+            el = description.nth(i)
+            label = await el.get_attribute("aria-label")
+            aria_labels.append(label)
 
-            description = page.locator('div[class*="style-scope ytd-video-description-header-renderer"]') 
-            description = description.locator('div[class*="ytwFactoidRendererFactoid"]')
-            n = await description.count()
-            aria_labels = []
-            for i in range(n):
-                # Get the i-th element and extract aria-label
-                el = description.nth(i)
-                label = await el.get_attribute("aria-label")
-                aria_labels.append(label)
+        views, date = "N/A", "N/A"
+        if aria_labels:
+            views = aria_labels[1].replace(" views", "")
+            date = aria_labels[2]
 
-            views, date = "N/A", "N/A"
-            if aria_labels:
-                views = aria_labels[1].replace(" views", "")
-                date = aria_labels[2]
+        
+        
+        # comments
+        await stats_elem.nth(2).click() # Click on comments count to load comments
+        await asyncio.sleep(1.5)  # Wait for comments to load
+        comments_section = page.locator('div[class*=" style-scope ytd-item-section-renderer style-scope ytd-item-section-renderer"]')
+        comments_section = await comments_section.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap"]').all_inner_texts()
+        comments = []
+        for comment in comments_section:
+            if is_comment(comment):
+                comments.append(comment)
 
-            
-            
-            # comments
-            await stats_elem.nth(2).click() # Click on comments count to load comments
-            await asyncio.sleep(1.5)  # Wait for comments to load
-            comments_section = page.locator('div[class*=" style-scope ytd-item-section-renderer style-scope ytd-item-section-renderer"]')
-            comments_section = await comments_section.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap"]').all_inner_texts()
-            comments = []
-            for comment in comments_section:
-                if is_comment(comment):
-                    comments.append(comment)
-
-
-            return ShortInfo(
-                link=url,
-                title=await short_title.inner_text(),
-                likes=likes,
-                comment_count=comment_count,
-                views=views,
-                upload_date=date,
-                comments=comments
-            )
-
-        await browser.close()
+        return ShortInfo(
+            link=url,
+            title=await short_title.inner_text(),
+            likes=likes,
+            comment_count=comment_count,
+            views=views,
+            upload_date=date,
+            comments=comments
+        )
 
     except Exception as e:
-        print(f"Error occurred: {e}")
-        await browser.close()
+        print(f"[{url}] Error: {e}")
         return ShortInfo(
             link=url,
             title="N/A",
@@ -123,13 +116,49 @@ async def grab_short_info(url: str) -> ShortInfo:
     
 
 async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortInfo]:
-    pass
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        tasks = []
+        # Create one page per URL
+        for url in urls:
+            page = await browser.new_page()
+            # Optional: emulate lower resource usage
+            await page.set_viewport_size({"width": 1080, "height": 720})
+            tasks.append(grab_short_info(page, url))
+
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Handle any exceptions that slipped through
+        final_results = []
+        for i, res in enumerate(results):
+            if isinstance(res, Exception):
+                print(f"Task {i} failed with: {res}")
+                # fallback
+                final_results.append(
+                    ShortInfo(
+                        link=urls[i],
+                        title="ERROR",
+                        likes="N/A",
+                        comment_count="N/A",
+                        views="N/A",
+                        upload_date="N/A",
+                        comments=[]
+                    )
+                )
+            else:
+                final_results.append(res)
+
 
 
 async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[ShortInfo]:
-    short_info = await grab_short_info(url)
-    if short_info.title != "N/A":
-        print(f"Fetched: {short_info.title}")
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        short_info = await grab_short_info(page,url)
+    
+    if short_info.title == "N/A":
+        print(f"[{url}] Failed to retrieve data.")
+        return
 
     if args.csv:
         save_shorts_csv([short_info], args.csv)
@@ -172,7 +201,7 @@ def parse_args():
     parser.add_argument(
         "--csv",
         nargs="?",
-        const=True,  # means flag used without arg: --csv → use default basename
+        const=True,
         metavar="FILE",
         help="Export to CSV. If no FILE given, use --output or default 'output.csv'."
     )
