@@ -1,4 +1,4 @@
-import asyncio, argparse, sys
+import asyncio, argparse, sys, math, random, time
 from pathlib import Path
 from playwright.async_api import async_playwright
 from dataclasses import dataclass
@@ -16,11 +16,29 @@ class ShortInfo:
     upload_date: str
     comments: list
 
+def optimal_chunk_size(n: int) -> int:
+    """
+    Compute optimal chunk size for YouTube scraping:
+    """
+    if n <= 1:
+        return 1
+    if n <= 4:
+        return n
+    if n <= 10:
+        return max(2, n // 2)
+    max_chunk = min(15, n)
 
+    for chunk in range(max_chunk, 4, -1):
+        num_chunks = math.ceil(n / chunk)
+        last_chunk = n - (num_chunks - 1) * chunk
+        if last_chunk >= max(1, int(0.7 * chunk)):
+            return chunk
+    print(f"Chunk size: {min(5, n)}")
+    return min(5, n)
 
 
 def is_comment(text) -> bool:
-    return True if len(text.split(" ")[-1]) > 2 else False
+    return True if len(text.split(" ")[-1]) > 1 and text.lower() != "top is selected, so you'll see featured comments" else False
 
 def is_short_url(url: str) -> bool:
     return "youtube.com/shorts/" in url
@@ -61,7 +79,7 @@ async def grab_short_info(page, url: str) -> ShortInfo:
         short_title = page.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--link-inherit-color"]')
         stats_elem = 'span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--text-alignment-center yt-core-attributed-string--word-wrapping"]'
         stats_elem = page.locator(stats_elem)
-        await stats_elem.first.wait_for(state="visible", timeout=10000)
+        await stats_elem.first.wait_for(state="visible", timeout=3000)
         stats_texts = await stats_elem.all_inner_texts()
         likes, comment_count = stats_texts[0], stats_texts[2]
 
@@ -79,8 +97,6 @@ async def grab_short_info(page, url: str) -> ShortInfo:
         if aria_labels:
             views = aria_labels[1].replace(" views", "")
             date = aria_labels[2]
-
-        
         
         # comments
         await stats_elem.nth(2).click() # Click on comments count to load comments
@@ -116,45 +132,66 @@ async def grab_short_info(page, url: str) -> ShortInfo:
     
 
 async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortInfo]:
+    url_list = list(urls)
+    n = len(url_list)
+    print(f"Processing {n} short URLs...")
+    chunk_size = optimal_chunk_size(n)
+    total_completed = 0
+    all_results: List[ShortInfo] = []
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        tasks = []
-        # Create one page per URL
-        for url in urls:
-            page = await browser.new_page()
-            # Optional: emulate lower resource usage
-            await page.set_viewport_size({"width": 1080, "height": 720})
-            tasks.append(grab_short_info(page, url))
+        print(f"Progress: {total_completed} of {n:,}", end='\r')
+        # Process in chunks
+        start = time.time()
+        for i in range(0, n, chunk_size):
+            chunk_urls = url_list[i:i + chunk_size]
+            # Launch one page per URL in this chunk
+            tasks, pages = [], []
+            for url in chunk_urls:
+                page = await browser.new_page()
+                await page.set_viewport_size({"width": random.randint(800, 1120), "height": random.randint(600, 1080)})
+                pages.append(page)
+                tasks.append(grab_short_info(page, url))
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+            # Process chunk with live progress
+            chunk_results: List[ShortInfo] = []
+            completed = 0
 
-        # Handle any exceptions that slipped through
-        final_results = []
-        for i, res in enumerate(results):
-            if isinstance(res, Exception):
-                print(f"Task {i} failed with: {res}")
-                # fallback
-                final_results.append(
-                    ShortInfo(
-                        link=urls[i],
-                        title="ERROR",
-                        likes="N/A",
-                        comment_count="N/A",
-                        views="N/A",
-                        upload_date="N/A",
-                        comments=[]
-                    )
-                )
-            else:
-                final_results.append(res)
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    result = await coro
+                    chunk_results.append(result)
+                except Exception as e:
+                    print(f"\nTask failed: {e}")
+                completed += 1
+            await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
+            all_results.extend(chunk_results)
 
+            total_completed += completed
+            print(f"Progress: {total_completed:,} of {n:,}", end='\r')
+        
+        stop = time.time()
+        if args.csv:
+            save_shorts_csv(all_results, args.csv)
+            print(f"  [Saved CSV to: {args.csv}]")
+        if args.json:
+            save_shorts_json(all_results, args.json)
+            print(f"  [Saved JSON to: {args.json}]")
+
+        print(f"Completed {n:,} Shorts in {stop - start:.2f} seconds.")
+
+        await browser.close()
+        return all_results
 
 
 async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[ShortInfo]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
+        start = time.time()
         short_info = await grab_short_info(page,url)
+        stop = time.time()
     
     if short_info.title == "N/A":
         print(f"[{url}] Failed to retrieve data.")
@@ -162,13 +199,16 @@ async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[Sho
 
     if args.csv:
         save_shorts_csv([short_info], args.csv)
-        print(f"Saved CSV to: {args.csv}")
+        print(f"  [Saved CSV to: {args.csv}]")
 
     if args.json:
         save_shorts_json([short_info], args.json)
-        print(f"Saved JSON to: {args.json}")
+        print(f"  [Saved JSON to: {args.json}]")
+    
+    print(f"Completed in {stop - start:.2f} seconds.")
 
     
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -244,13 +284,13 @@ def parse_args():
 
 async def main():
     args = parse_args()
-    
     if args.link:
         await single_grab_short_info(args.link, args)
     elif args.read:
         urls = load_links(args.read)
         await bulk_grab_short_info(urls, args)
+    
 
 
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
