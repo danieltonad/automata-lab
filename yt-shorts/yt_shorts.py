@@ -37,8 +37,18 @@ def optimal_chunk_size(n: int) -> int:
     return min(5, n)
 
 
-def is_comment(text) -> bool:
-    return True if len(text.split(" ")[-1]) > 1 and text.lower() != "top is selected, so you'll see featured comments" else False
+def is_comment(text: str) -> bool:
+    # Filter out UI text seen in comment sections
+    ui_phrases = {
+        "top comments",
+        "newest first",
+        "top is selected",
+        "featured comments",
+        "sort by",
+        "comments •",
+    }
+    text_lower = text.strip().lower()
+    return len(text) > 2 and not any(phrase in text_lower for phrase in ui_phrases)
 
 def is_short_url(url: str) -> bool:
     return "youtube.com/shorts/" in url
@@ -90,7 +100,7 @@ async def grab_short_info(page, url: str) -> ShortInfo:
         for i in range(n):
             # Get the i-th element and extract aria-label
             el = description.nth(i)
-            label = await el.get_attribute("aria-label")
+            label = await el.get_attribute("aria-label") or ""
             aria_labels.append(label)
 
         views, date = "N/A", "N/A"
@@ -100,7 +110,7 @@ async def grab_short_info(page, url: str) -> ShortInfo:
         
         # comments
         await stats_elem.nth(2).click() # Click on comments count to load comments
-        await asyncio.sleep(1.5)  # Wait for comments to load
+        await asyncio.sleep(1)  # Wait for comments to load
         comments_section = page.locator('div[class*=" style-scope ytd-item-section-renderer style-scope ytd-item-section-renderer"]')
         comments_section = await comments_section.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap"]').all_inner_texts()
         comments = []
@@ -141,7 +151,9 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        print(f"Progress: {total_completed} of {n:,}", end='\r')
+        # log progress
+        print(f"Progress: {total_completed:,} of {n:,}", end='\r')
+        context = await browser.new_context()
         # Process in chunks
         start = time.time()
         for i in range(0, n, chunk_size):
@@ -149,7 +161,7 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
             # Launch one page per URL in this chunk
             tasks, pages = [], []
             for url in chunk_urls:
-                page = await browser.new_page()
+                page = await context.new_page()
                 await page.set_viewport_size({"width": random.randint(800, 1120), "height": random.randint(600, 1080)})
                 pages.append(page)
                 tasks.append(grab_short_info(page, url))
@@ -167,9 +179,7 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
                 completed += 1
             await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
             all_results.extend(chunk_results)
-
             total_completed += completed
-            print(f"Progress: {total_completed:,} of {n:,}", end='\r')
         
         stop = time.time()
         if args.csv:
