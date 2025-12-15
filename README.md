@@ -8,6 +8,6 @@ Built for reliability, not just prototyping.
 
 | Name | Description | Status |
 |------|-------------|--------|
-| [`yt-shorts`](yt-shorts/) | Extract metadata from YouTube Shorts (title, views, likes, comments) | ✅ Stable 
-| [`tiktok`](tiktok/) | Extract metadata from TikTok videos (title, views, likes, comments, bookmarks, shares) | ⏳ In progress
+| [`yt-shorts`](yt-shorts/) | Extract metadata from YouTube Shorts (title, views, likes, comments) | ✅
+| [`tiktok`](tiktok/) | Extract metadata from TikTok videos (title, views, likes, comments, bookmarks, shares) | ⏳ 
 
