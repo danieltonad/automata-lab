@@ -1,9 +1,9 @@
 import asyncio, argparse, sys, math, random, time
+import psutil
 from pathlib import Path
 from playwright.async_api import async_playwright
 from dataclasses import dataclass
 from typing import List, Set
-
 
 
 @dataclass
@@ -14,27 +14,92 @@ class ShortInfo:
     comment_count: str
     views: str
     upload_date: str
-    comments: list
+    comments: List[str]
+
+class Colors:
+    RESET = "\033[0m"
+    GREEN = "\033[32m"
+    CYAN = "\033[36m"
+    BLUE = "\033[34m"
+    GRAY = "\033[90m"
+
 
 def optimal_chunk_size(n: int) -> int:
     """
-    Compute optimal chunk size for YouTube scraping:
+    Compute optimal chunk size for YouTube scraping based on number of URLs and system resources.
     """
-    if n <= 1:
-        return 1
     if n <= 4:
-        return n
+        return max(1, n)
     if n <= 10:
         return max(2, n // 2)
-    max_chunk = min(15, n)
 
-    for chunk in range(max_chunk, 4, -1):
-        num_chunks = math.ceil(n / chunk)
-        last_chunk = n - (num_chunks - 1) * chunk
-        if last_chunk >= max(1, int(0.7 * chunk)):
-            return chunk
-    print(f"Chunk size: {min(5, n)}")
-    return min(5, n)
+    try:
+        # Hardware metrics
+        ram_gb = psutil.virtual_memory().total / (1024 ** 3)  # in GB
+        cpu_count = psutil.cpu_count(logical=True) or 1
+        try:
+            freq = psutil.cpu_freq()
+            clock_ghz = freq.max / 1000.0 if freq and freq.max > 0 else freq.current / 1000.0
+        except (AttributeError, NotImplementedError):
+            clock_ghz = 2.5
+
+        # Compute adaptive chunk size
+        base = 8
+        cpu_scale = min(cpu_count / 2.0, 4.0)
+        ram_scale = min(ram_gb / 8.0, 3.0)
+        speed_scale = min(clock_ghz / 2.5, 2.0)
+        chunk = int(base * cpu_scale * ram_scale * speed_scale ** 0.5)
+        
+        # Clamp and ensure reasonable bounds
+        chunk = max(5, min(chunk, 30, n))
+        # decreasing chunk size slightly to improve balance
+        for candidate in range(chunk, max(4, chunk - 6), -1):
+            num_chunks = math.ceil(n / candidate)
+            last = n - (num_chunks - 1) * candidate
+            if last >= max(2, int(0.65 * candidate)):
+                return candidate
+
+        # fallback to original balancing logic if refinement fails
+        max_chunk = min(25, n)
+        for candidate in range(max_chunk, 4, -1):
+            num_chunks = math.ceil(n / candidate)
+            last = n - (num_chunks - 1) * candidate
+            if last >= max(2, int(0.65 * candidate)):
+                return candidate
+        return min(5, n)
+
+    except Exception:
+        # Fallback to pure n-based logic (psutil not installed)
+        max_chunk = min(15, n)
+        for chunk in range(max_chunk, 4, -1):
+            num_chunks = math.ceil(n / chunk)
+            last_chunk = n - (num_chunks - 1) * chunk
+            if last_chunk >= max(1, int(0.7 * chunk)):
+                return chunk
+        return min(5, n)
+
+
+def log(message: str) -> None:
+    with open("yt_shorts.log", "a", encoding="utf-8") as log_file:
+        log_file.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} - {message}\n")
+
+
+def time_taken(start: float, stop: float) -> str:
+    elapsed = stop - start
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
+
 
 
 def is_comment(text: str) -> bool:
@@ -82,7 +147,7 @@ def save_shorts_json(shorts: List[ShortInfo], filepath: Path) -> None:
 
 
 
-async def grab_short_info(page, url: str) -> ShortInfo:
+async def grab_short_info(page, url: str, retry: int = 0) -> ShortInfo:
     try:
         await page.goto(url, timeout=60000)
         
@@ -108,15 +173,18 @@ async def grab_short_info(page, url: str) -> ShortInfo:
             views = aria_labels[1].replace(" views", "")
             date = aria_labels[2]
         
-        # comments
-        await stats_elem.nth(2).click() # Click on comments count to load comments
-        await asyncio.sleep(1)  # Wait for comments to load
-        comments_section = page.locator('div[class*=" style-scope ytd-item-section-renderer style-scope ytd-item-section-renderer"]')
-        comments_section = await comments_section.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap"]').all_inner_texts()
-        comments = []
-        for comment in comments_section:
-            if is_comment(comment):
-                comments.append(comment)
+        try:
+            # comments
+            await stats_elem.nth(2).click() # Click on comments count to load comments
+            await asyncio.sleep(1.5)  # Wait for comments to load
+            comments_section = page.locator('div[class*=" style-scope ytd-item-section-renderer style-scope ytd-item-section-renderer"]')
+            comments_section = await comments_section.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap"]').all_inner_texts()
+            comments = []
+            for comment in comments_section:
+                if is_comment(comment):
+                    comments.append(comment)
+        except:
+            comments = []
 
         return ShortInfo(
             link=url,
@@ -129,22 +197,17 @@ async def grab_short_info(page, url: str) -> ShortInfo:
         )
 
     except Exception as e:
-        print(f"[{url}] Error: {e}")
-        return ShortInfo(
-            link=url,
-            title="N/A",
-            likes="N/A",
-            comment_count="N/A",
-            views="N/A",
-            upload_date="N/A",
-            comments=[]
-        )
+        if retry >= 2:
+            return ShortInfo(link=url, title="N/A", likes="N/A", comment_count="N/A", views="N/A", upload_date="N/A", comments=[])
+        else:
+            await page.close()
+            return await grab_short_info(page, url, retry + 1)
     
 
 async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortInfo]:
     url_list = list(urls)
     n = len(url_list)
-    print(f"Processing {n} short URLs...")
+    print(f"{Colors.CYAN}Processing {n} YT short URLs...{Colors.RESET}", flush=True)
     chunk_size = optimal_chunk_size(n)
     total_completed = 0
     all_results: List[ShortInfo] = []
@@ -152,17 +215,17 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         # log progress
-        print(f"Progress: {total_completed:,} of {n:,}", end='\r')
         context = await browser.new_context()
         # Process in chunks
         start = time.time()
         for i in range(0, n, chunk_size):
+            print(f"Progress: {total_completed:,} of {n:,}", end='\r', flush=True)
             chunk_urls = url_list[i:i + chunk_size]
             # Launch one page per URL in this chunk
             tasks, pages = [], []
             for url in chunk_urls:
                 page = await context.new_page()
-                await page.set_viewport_size({"width": random.randint(800, 1120), "height": random.randint(600, 1080)})
+                await page.set_viewport_size({"width": random.randint(800, 1120), "height": random.randint(600, 1080)}) # randomize viewport size
                 pages.append(page)
                 tasks.append(grab_short_info(page, url))
 
@@ -175,8 +238,9 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
                     result = await coro
                     chunk_results.append(result)
                 except Exception as e:
-                    print(f"\nTask failed: {e}")
+                    print(f"\nTask failed: {e}", flush=True)
                 completed += 1
+            
             await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
             all_results.extend(chunk_results)
             total_completed += completed
@@ -184,12 +248,12 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
         stop = time.time()
         if args.csv:
             save_shorts_csv(all_results, args.csv)
-            print(f"  [Saved CSV to: {args.csv}]")
+            print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
         if args.json:
             save_shorts_json(all_results, args.json)
-            print(f"  [Saved JSON to: {args.json}]")
+            print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
 
-        print(f"Completed {n:,} Shorts in {stop - start:.2f} seconds.")
+        print(f"\n{Colors.GREEN} Completed  {n:,} Shorts in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
 
         await browser.close()
         return all_results
@@ -204,18 +268,18 @@ async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[Sho
         stop = time.time()
     
     if short_info.title == "N/A":
-        print(f"[{url}] Failed to retrieve data.")
+        print(f"[{url}] Failed to retrieve data.", flush=True)
         return
 
     if args.csv:
         save_shorts_csv([short_info], args.csv)
-        print(f"  [Saved CSV to: {args.csv}]")
+        print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
 
     if args.json:
         save_shorts_json([short_info], args.json)
-        print(f"  [Saved JSON to: {args.json}]")
+        print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
     
-    print(f"Completed in {stop - start:.2f} seconds.")
+    print(f"\n{Colors.GREEN}Completed in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
 
     
 
@@ -244,7 +308,7 @@ def parse_args():
         "-o", "--output",
         type=str,
         metavar="BASENAME",
-        help="Base name for output files (e.g., 'results' → results.csv, results.json)"
+        help="Base name for output files ('results' → results.csv, results.json)"
     )
 
     # Output flags: --csv [FILE], --json [FILE]
