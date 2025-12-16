@@ -7,7 +7,7 @@ from typing import List, Set
 
 
 @dataclass
-class ShortInfo:
+class ShortMetaData:
     link: str
     title: str
     likes: str
@@ -129,9 +129,9 @@ def load_links(file_path: Path = None) -> Set[str]:
 
 
 
-def save_shorts_csv(shorts: List[ShortInfo], filepath: Path) -> None:
+def save_shorts_csv(shorts: List[ShortMetaData], filepath: Path) -> None:
     import csv
-    fieldnames = [f for f in ShortInfo.__dataclass_fields__.keys() if f != "comments"]
+    fieldnames = [f for f in ShortMetaData.__dataclass_fields__.keys() if f != "comments"]
 
     with open(filepath, 'w', newline='', encoding='utf-8') as output_file:
         dict_writer = csv.DictWriter(output_file, fieldnames=fieldnames)
@@ -140,14 +140,14 @@ def save_shorts_csv(shorts: List[ShortInfo], filepath: Path) -> None:
             row = {k: v for k, v in short.__dict__.items() if k != "comments"}
             dict_writer.writerow(row)
 
-def save_shorts_json(shorts: List[ShortInfo], filepath: Path) -> None:
+def save_shorts_json(shorts: List[ShortMetaData], filepath: Path) -> None:
     import json
     with open(filepath, 'w', encoding='utf-8') as output_file:
         json.dump([s.__dict__ for s in shorts], output_file, ensure_ascii=False, indent=4)
 
 
 
-async def grab_short_info(page, url: str, retry: int = 0) -> ShortInfo:
+async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
     try:
         await page.goto(url, timeout=60000)
         
@@ -186,7 +186,7 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortInfo:
         except:
             comments = []
 
-        return ShortInfo(
+        return ShortMetaData(
             link=url,
             title=await short_title.inner_text(),
             likes=likes,
@@ -198,19 +198,19 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortInfo:
 
     except Exception as e:
         if retry >= 2:
-            return ShortInfo(link=url, title="N/A", likes="N/A", comment_count="N/A", views="N/A", upload_date="N/A", comments=[])
+            return ShortMetaData(link=url, title="N/A", likes="N/A", comment_count="N/A", views="N/A", upload_date="N/A", comments=[])
         else:
             await page.close()
             return await grab_short_info(page, url, retry + 1)
     
 
-async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortInfo]:
+async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortMetaData]:
     url_list = list(urls)
     n = len(url_list)
     print(f"{Colors.CYAN}Processing {n} YT short URLs...{Colors.RESET}", flush=True)
     chunk_size = optimal_chunk_size(n)
     total_completed = 0
-    all_results: List[ShortInfo] = []
+    all_results: List[ShortMetaData] = []
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -230,7 +230,7 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
                 tasks.append(grab_short_info(page, url))
 
             # Process chunk with live progress
-            chunk_results: List[ShortInfo] = []
+            chunk_results: List[ShortMetaData] = []
             completed = 0
 
             for coro in asyncio.as_completed(tasks):
@@ -259,7 +259,7 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
         return all_results
 
 
-async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[ShortInfo]:
+async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[ShortMetaData]:
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         page = await browser.new_page()
