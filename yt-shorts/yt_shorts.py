@@ -1,15 +1,16 @@
-import asyncio, argparse, sys, math, random, time
-import psutil
+import asyncio, argparse, sys, math, random, time, re, psutil
 from pathlib import Path
 from playwright.async_api import async_playwright
 from dataclasses import dataclass
-from typing import List, Set
+from typing import List, Set, Tuple
 
 
 @dataclass
 class ShortMetaData:
     link: str
     title: str
+    tags: str
+    channel_link: str
     likes: str
     comment_count: str
     views: str
@@ -100,7 +101,10 @@ def time_taken(start: float, stop: float) -> str:
 
     return " ".join(parts)
 
-
+def description_sanitize(description: str) -> Tuple[str, str]:
+    tags = re.findall(r'#\w+', description)
+    clean_description = re.sub(r'#\w+', '', description).strip()
+    return clean_description, ' '.join(tags)
 
 def is_comment(text: str) -> bool:
     # Filter out UI text seen in comment sections
@@ -152,6 +156,9 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
         await page.goto(url, timeout=60000)
         
         short_title = page.locator('span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--link-inherit-color"]')
+        title, tags = description_sanitize(await short_title.inner_text())
+        channel_name = await page.locator('span.ytReelChannelBarViewModelChannelName.yt-core-attributed-string').inner_text()
+        channel_link = f"https://www.youtube.com/{channel_name}"
         stats_elem = 'span[class*="yt-core-attributed-string yt-core-attributed-string--white-space-pre-wrap yt-core-attributed-string--text-alignment-center yt-core-attributed-string--word-wrapping"]'
         stats_elem = page.locator(stats_elem)
         await stats_elem.first.wait_for(state="visible", timeout=3000)
@@ -188,7 +195,9 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
 
         return ShortMetaData(
             link=url,
-            title=await short_title.inner_text(),
+            title=title,
+            channel_link=channel_link,
+            tags=tags,
             likes=likes,
             comment_count=comment_count,
             views=views,
@@ -198,7 +207,7 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
 
     except Exception as e:
         if retry >= 2:
-            return ShortMetaData(link=url, title="N/A", likes="N/A", comment_count="N/A", views="N/A", upload_date="N/A", comments=[])
+            return ShortMetaData( link=url,  title="N/A", tags="N/A", channel_link="N/A",likes="N/A", comment_count="N/A", views="N/A", upload_date="N/A", comments=[])
         else:
             await page.close()
             return await grab_short_info(page, url, retry + 1)
