@@ -96,15 +96,3 @@ JSON fields (one object per video):
 
 Batch scraping uses Playwright with stealth evasion and adaptive concurrency. The script computes an optimal chunk size based on your CPU, RAM, and clock speed to balance throughput and stability. Progress is printed per chunk; failures are retried up to 3 times with exponential backoff.
 
-## 🛠️ Troubleshooting
-
-- Install error for `playwright`: ensure you have run `playwright install chromium`.
-- Import error `playwright_stealth`: run `pip install playwright-stealth`.
-- Rate limiting/CAPTCHA: re-run later, reduce batch size (fewer URLs), or use a stable IP.
-- Slow or flaky runs: close other heavy apps, ensure enough RAM, or process fewer URLs at once (reduce the input list).
-- Logs: failures are appended to `tiktok.log` in the project directory.
-
-## ✅ Compatibility
-
-- Tested on Windows with Python 3.12. Should also work on Linux/macOS.
-
