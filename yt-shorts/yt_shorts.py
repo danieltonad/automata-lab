@@ -223,7 +223,6 @@ async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        # log progress
         context = await browser.new_context()
         # Process in chunks
         start = time.time()
