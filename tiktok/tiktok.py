@@ -337,9 +337,9 @@ async def main():
     args = parse_args()
     if args.link:
         await single_tiktok_metadata(args.link, args)
-    # elif args.read:
-    #     urls = load_links(args.read)
-    #     await bulk_tiktok_metadata(urls, args)
+    elif args.read:
+        urls = load_links(args.read)
+        await bulk_tiktok_metadata(urls, args)
 
 
 
