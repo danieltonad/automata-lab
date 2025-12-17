@@ -108,9 +108,3 @@ Batch scraping uses Playwright with stealth evasion and adaptive concurrency. Th
 
 - Tested on Windows with Python 3.12. Should also work on Linux/macOS.
 
-## 📚 Project Files
-
-- `tiktok.py`: CLI entry point and scraper implementation
-- `requirements.txt`: Python dependencies (install `playwright-stealth` separately if missing)
-- `links.txt`: Example input (one URL per line)
-- `output.csv`, `output.json`: Example outputs
