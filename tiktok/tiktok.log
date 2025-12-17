@@ -546,3 +546,6 @@ Call log:
 Call log:
   - waiting for locator("strong[data-e2e=\"comment-count\"]").first
 
+2025-12-17 13:09:50 - Failed to fetch metadata for https://www.tiktok.com/@valneri62/video/7580995718165318932: 'coroutine' object has no attribute 'strip'
+2025-12-17 13:09:53 - Failed to fetch metadata for https://www.tiktok.com/@cmpiamonte2/video/7581360128272715029: 'coroutine' object has no attribute 'strip'
+2025-12-17 13:09:57 - Failed to fetch metadata for https://www.tiktok.com/@valneri62/video/7582959680092114197: 'coroutine' object has no attribute 'strip'

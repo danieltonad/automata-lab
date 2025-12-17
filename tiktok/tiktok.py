@@ -17,7 +17,6 @@ class TiktokMetadata:
     shares: str
     bookmarks: str
     comment_count: str
-    comments: List[str]
 
 class Colors:
     RESET = "\033[0m"
@@ -113,6 +112,8 @@ def get_author_from_url(url: str) -> str:
 def description_sanitize(description: str) -> Tuple[str, str]:
     tags = re.findall(r'#\w+', description)
     clean_description = re.sub(r'#\w+', '', description).strip()
+    clean_description = re.sub(r'[\t\n]', ' ', clean_description).strip()
+    clean_description = re.sub(r'\s+', ' ', clean_description).strip()
     return clean_description, ' '.join(tags)
 
 def load_links(file_path: Path = None) -> Set[str]:
@@ -151,11 +152,11 @@ async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadat
         title, tags = description_sanitize(description)
         author = get_author_from_url(url)
 
-        comment_button = page.get_by_role("button", name=re.compile("Read or add comments"))
-        await comment_button.first.click()
-        await asyncio.sleep(1.2)
-        comment_block = page.locator('div[class="TUXTabBar-content"]').first
-        comments = await comment_block.locator('span[data-e2e="comment-level-1"]').all_inner_texts()
+        # comment_button = page.get_by_role("button", name=re.compile("Read or add comments"))
+        # await comment_button.first.click()
+        # await asyncio.sleep(1.2)
+        # comment_block = page.locator('div[class="TUXTabBar-content"]').first
+        # comments = await comment_block.locator('span[data-e2e="comment-level-1"]').all_inner_texts()
 
         return TiktokMetadata(
             link=url,
@@ -165,8 +166,7 @@ async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadat
             author=author,
             shares=shares,
             bookmarks=bookmarks,
-            comment_count=comment_count,
-            comments=comments
+            comment_count=comment_count
         )
     except Exception as e:
         if retry < 3:
@@ -182,8 +182,7 @@ async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadat
                 author="",
                 shares="0",
                 bookmarks="0",
-                comment_count="0",
-                comments=[]
+                comment_count="0"
             )
 
 async def bulk_tiktok_metadata(urls: Set[str], args: argparse.Namespace) -> List[TiktokMetadata]:   
@@ -224,20 +223,18 @@ async def bulk_tiktok_metadata(urls: Set[str], args: argparse.Namespace) -> List
             await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
             all_results.extend(chunk_results)
             total_completed += completed
-        
         stop = time.time()
-        if args.csv:
-            save_tiktok_metadata_csv(all_results, args.csv)
-            print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
-        if args.json:
-            save_tiktok_metadata_json(all_results, args.json)
-            print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
+        
+    if args.csv:
+        save_tiktok_metadata_csv(all_results, args.csv)
+        print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
+    if args.json:
+        save_tiktok_metadata_json(all_results, args.json)
+        print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
 
-        print(f"\n{Colors.GREEN} Completed  {n:,} TikToks in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
+    print(f"\n{Colors.GREEN} Completed  {n:,} TikToks in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
 
-        await browser.close()
-        return all_results
-
+    await browser.close()
 
 async def single_tiktok_metadata(url: str, args: argparse.Namespace) -> TiktokMetadata:
     async with async_playwright() as p:

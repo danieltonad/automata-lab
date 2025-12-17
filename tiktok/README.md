@@ -1,6 +1,6 @@
 # TikTok Metadata Scraper
 
-CLI tool to extract metadata from TikTok videos — title, author, hashtags, likes, shares, bookmarks, total comment count, and top-level comments — and export to CSV and/or JSON.
+CLI tool to extract metadata from TikTok videos — title, author, hashtags, likes, shares, bookmarks, total comment count — and export to CSV and/or JSON.
 
 Part of [automata-lab](https://github.com/danieltonad/automata-lab).
 
@@ -28,9 +28,6 @@ Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
-# playwright-stealth is required by this tool
-pip install playwright-stealth
-```
 
 Install the browser runtime (Chromium):
 
@@ -40,13 +37,13 @@ playwright install chromium
 
 ## 📖 Usage
 
-Scrape a single TikTok URL and save JSON (includes comments):
+Scrape a single TikTok URL and save JSON:
 
 ```bash
 python tiktok.py "https://www.tiktok.com/@someuser/video/1234567890" --json
 ```
 
-Scrape multiple URLs from a file, save CSV (no comments field) and JSON (with comments):
+Scrape multiple URLs from a file, save CSV and JSON:
 
 ```bash
 python tiktok.py -r links.txt --csv --json
@@ -93,7 +90,7 @@ CSV columns (one row per video):
 
 JSON fields (one object per video):
 
-- `link`, `author`, `title`, `tags`, `likes`, `shares`, `bookmarks`, `comment_count`, `comments` (array of strings)
+- `link`, `author`, `title`, `tags`, `likes`, `shares`, `bookmarks`, `comment_count`
 
 ## 🚀 Performance
 
