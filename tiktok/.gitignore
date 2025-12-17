@@ -3,4 +3,5 @@ env
 !requirements.txt
 *csv
 *.json
+*.log
 grab.py

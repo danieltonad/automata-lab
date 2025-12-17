@@ -132,7 +132,6 @@ def load_links(file_path: Path = None) -> Set[str]:
     return set()
 
 
-
 def save_shorts_csv(shorts: List[ShortMetaData], filepath: Path) -> None:
     import csv
     fieldnames = [f for f in ShortMetaData.__dataclass_fields__.keys() if f != "comments"]
@@ -148,8 +147,6 @@ def save_shorts_json(shorts: List[ShortMetaData], filepath: Path) -> None:
     import json
     with open(filepath, 'w', encoding='utf-8') as output_file:
         json.dump([s.__dict__ for s in shorts], output_file, ensure_ascii=False, indent=4)
-
-
 
 async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
     try:
@@ -212,7 +209,6 @@ async def grab_short_info(page, url: str, retry: int = 0) -> ShortMetaData:
             await page.close()
             return await grab_short_info(page, url, retry + 1)
     
-
 async def bulk_grab_short_info(urls: Set[str], args: argparse.Namespace) -> List[ShortMetaData]:
     url_list = list(urls)
     n = len(url_list)
