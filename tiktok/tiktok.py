@@ -186,8 +186,57 @@ async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadat
                 comments=[]
             )
 
-async def bulk_tiktok_metadata(urls: Set[str]) -> List[TiktokMetadata]:   
-    pass
+async def bulk_tiktok_metadata(urls: Set[str], args: argparse.Namespace) -> List[TiktokMetadata]:   
+    url_list = list(urls)
+    n = len(url_list)
+    print(f"{Colors.CYAN}Processing {n} TikTok URLs...{Colors.RESET}", flush=True)
+    chunk_size = optimal_chunk_size(n)
+    total_completed = 0
+    all_results: List[TiktokMetadata] = []
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context()
+        # Process in chunks
+        start = time.time()
+        for i in range(0, n, chunk_size):
+            print(f"Progress: {total_completed:,} of {n:,}", end='\r', flush=True)
+            chunk_urls = url_list[i:i + chunk_size]
+            tasks, pages = [], []
+            for url in chunk_urls:
+                page = await context.new_page()
+                await Stealth().apply_stealth_async(page)
+                pages.append(page)
+                tasks.append(fetch_tiktok_metadata(url, page))
+
+            # Process chunk with live progress
+            chunk_results: List[TiktokMetadata] = []
+            completed = 0
+
+            for coro in asyncio.as_completed(tasks):
+                try:
+                    result = await coro
+                    chunk_results.append(result)
+                except Exception as e:
+                    print(f"\nTask failed: {e}", flush=True)
+                completed += 1
+            
+            await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
+            all_results.extend(chunk_results)
+            total_completed += completed
+        
+        stop = time.time()
+        if args.csv:
+            save_tiktok_metadata_csv(all_results, args.csv)
+            print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
+        if args.json:
+            save_tiktok_metadata_json(all_results, args.json)
+            print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
+
+        print(f"\n{Colors.GREEN} Completed  {n:,} TikToks in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
+
+        await browser.close()
+        return all_results
 
 
 async def single_tiktok_metadata(url: str, args: argparse.Namespace) -> TiktokMetadata:
@@ -197,8 +246,18 @@ async def single_tiktok_metadata(url: str, args: argparse.Namespace) -> TiktokMe
         start = time.time()
         await Stealth().apply_stealth_async(page)
         metadata = await fetch_tiktok_metadata(url, page)
-        await browser.close()
-        return metadata
+        stop = time.time()
+        await browser.close() #close browser
+
+    if args.csv:
+        save_tiktok_metadata_csv([metadata], args.csv)
+        print(f"{Colors.GRAY}  [Saved CSV to: {args.csv}]{Colors.RESET}", flush=True)
+    
+    if args.json:
+        save_tiktok_metadata_json([metadata], args.json)
+        print(f"{Colors.GRAY}  [Saved JSON to: {args.json}]{Colors.RESET}", flush=True)
+    
+    print(f"\n{Colors.GREEN}Completed in {time_taken(start, stop)}.{Colors.RESET}", flush=True)
 
 
 
