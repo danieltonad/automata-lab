@@ -1,6 +1,6 @@
 # YouTube Shorts Metadata Scraper
 
-A CLI tool to extract metadata from YouTube Shorts — title, views, likes, upload date, and top comments — in CSV or JSON.
+CLI tool to extract metadata from YouTube Shorts — title, views, likes, upload date, comment count, channel link, hashtags, and top-level comments — and export to CSV and/or JSON.
 
 Part of [automata-lab](https://github.com/danieltonad/automata-lab).
 
@@ -8,20 +8,29 @@ Part of [automata-lab](https://github.com/danieltonad/automata-lab).
 
 ## 🔧 Setup
 
-First, clone the repo and navigate to the project:
+Clone and enter the project folder:
 
 ```bash
 git clone https://github.com/danieltonad/automata-lab.git
 cd automata-lab/yt-shorts
 ```
 
-Install dependencies:
+Create a virtual environment (optional but recommended):
+
+```bash
+python -m venv env
+"env/Scripts/Activate.ps1"   # PowerShell on Windows
+# or
+env\Scripts\activate.bat     # CMD on Windows
+```
+
+Install Python dependencies:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-Install browser (Chromium):
+Install the browser runtime (Chromium):
 
 ```bash
 playwright install chromium
@@ -29,13 +38,13 @@ playwright install chromium
 
 ## 📖 Usage
 
-Scrape a single Shorts URL and save to JSON (includes comments):
+Scrape a single Shorts URL and save JSON (includes comments):
 
 ```bash
 python yt_shorts.py "https://youtube.com/shorts/abc123" --json
 ```
 
-Scrape from a file, save CSV (no comments) and JSON (with comments):
+Scrape multiple URLs from a file, save CSV (no comments field) and JSON (with comments):
 
 ```bash
 python yt_shorts.py -r links.txt --csv --json
@@ -44,26 +53,64 @@ python yt_shorts.py -r links.txt --csv --json
 Specify custom output filenames:
 
 ```bash
-python yt_shorts.py -r links.txt --csv results.csv --json results.jsonf
+python yt_shorts.py -r links.txt --csv results.csv --json results.json
 ```
 
-Use base name for both outputs (creates results.csv and results.json):
+Use a base name for both outputs (creates results.csv and results.json):
 
 ```bash
 python yt_shorts.py -r links.txt -o results --csv --json
 ```
 
+Example `links.txt` format:
+
+```
+https://youtube.com/shorts/abc123
+https://www.youtube.com/shorts/xyz456
+```
+
 ## ⚙️ Options
 
-- `link`: Optional: A single YouTube Shorts URL (e.g., https://youtube.com/shorts/...)
+- `link`: Optional single YouTube Shorts URL (e.g., https://youtube.com/shorts/...)
 - `-r, --read FILE`: Path to a text file containing one Shorts URL per line
-- `-o, --output BASENAME`: Base name for output files (used when --csv or --json has no filename)
-- `--csv [FILE]`: Export to CSV. If FILE is omitted, uses `-o` or defaults to `output.csv`. Note: CSV output excludes the 'comments' field.
-- `--json [FILE]`: Export to JSON. If FILE is omitted, uses `-o` or defaults to `output.json`. Note: JSON output includes all fields, including 'comments'.
+- `-o, --output BASENAME`: Base name for outputs when `--csv`/`--json` have no filenames
+- `--csv [FILE]`: Export to CSV. If FILE is omitted, uses `-o` or defaults to `output.csv`
+- `--json [FILE]`: Export to JSON. If FILE is omitted, uses `-o` or defaults to `output.json`
 
-## 📝 Notes
+Notes:
 
-- Only URLs containing "youtube.com/shorts/" are processed.
-- At least one of --csv or --json must be specified.
-- Cannot specify both a single link and --read file.
-- Comments are extracted from the visible comment section after clicking the comment button.
+- Only URLs containing `youtube.com/shorts/` are processed.
+- Provide either a single `link` or `--read FILE`, not both.
+- At least one output format (`--csv` or `--json`) is required.
+
+## 📦 Output
+
+CSV columns (one row per Short):
+
+- `link`, `title`, `tags`, `channel_link`, `likes`, `comment_count`, `views`, `upload_date`
+
+JSON fields (one object per Short):
+
+- `link`, `title`, `tags`, `channel_link`, `likes`, `comment_count`, `views`, `upload_date`, `comments` (array of strings)
+
+## 🚀 Performance
+
+Batch scraping uses Playwright with adaptive concurrency. The script computes an optimal chunk size based on your CPU, RAM, and clock speed to balance throughput and stability. Progress is printed per chunk; failures are retried with a limited backoff.
+
+## 🛠️ Troubleshooting
+
+- Install error for `playwright`: ensure you have run `playwright install chromium`.
+- Empty or partial results: YouTube UI can change; update Playwright and try again.
+- Slow or flaky runs: close other heavy apps, ensure enough RAM, or process fewer URLs at once (reduce the input list).
+- Logs: failures are appended to `yt_shorts.log` in the project directory.
+
+## ✅ Compatibility
+
+- Tested on Windows with Python 3.12. Should also work on Linux/macOS.
+
+## 📚 Project Files
+
+- `yt_shorts.py`: CLI entry point and scraper implementation
+- `requirements.txt`: Python dependencies
+- `links.txt`: Example input (one URL per line)
+- `output.csv`, `output.json`: Example outputs
