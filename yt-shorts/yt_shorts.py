@@ -275,6 +275,7 @@ async def single_grab_short_info(url: str, args: argparse.Namespace) -> List[Sho
         start = time.time()
         short_info = await grab_short_info(page,url)
         stop = time.time()
+        await browser.close() #close browser
     
     if short_info.title == "N/A":
         print(f"[{url}] Failed to retrieve data.", flush=True)
