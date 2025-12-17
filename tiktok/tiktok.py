@@ -2,6 +2,7 @@ import asyncio, argparse, sys, math, random, time
 import psutil, re
 from pathlib import Path
 from playwright.async_api import async_playwright
+from playwright_stealth import Stealth
 from dataclasses import dataclass
 from typing import List, Set, Tuple
 
@@ -9,11 +10,13 @@ from typing import List, Set, Tuple
 @dataclass
 class TiktokMetadata:
     link: str
+    author : str
     title: str
+    tags: str
     likes: str
+    shares: str
+    bookmarks: str
     comment_count: str
-    views: str
-    upload_date: str
     comments: List[str]
 
 class Colors:
@@ -26,7 +29,7 @@ class Colors:
 
 def optimal_chunk_size(n: int) -> int:
     """
-    Compute optimal chunk size for YouTube scraping based on number of URLs and system resources.
+    Compute optimal chunk size for TikTok scraping based on number of URLs and system resources.
     """
     if n <= 4:
         return max(1, n)
@@ -105,7 +108,7 @@ def is_tiktok_url(url: str) -> bool:
 
 def get_author_from_url(url: str) -> str:
     match = re.search(r'tiktok\.com/@([^/]+)/', url)
-    return match.group(1) if match else "unknown_author"
+    return match.group(1) if match else ""
 
 def description_sanitize(description: str) -> Tuple[str, str]:
     tags = re.findall(r'#\w+', description)
@@ -121,45 +124,163 @@ def load_links(file_path: Path = None) -> Set[str]:
     return set()
 
 
+def save_tiktok_metadata_csv(metadatas: List[TiktokMetadata], filepath: Path) -> None:
+    import csv
+    fieldnames = [f for f in TiktokMetadata.__dataclass_fields__.keys() if f != "comments"]
 
-async def fetch_tiktok_metadata(url: str, page) -> TiktokMetadata:
-    await page.goto(url, timeout=60000)
-    comment_count = await page.locator('strong[data-e2e="comment-count"]').first.inner_text()
-    likes = await page.locator('strong[data-e2e="like-count"]').first.inner_text()
-    bookmarks = await page.locator('strong[data-e2e="undefined-count"]').first.inner_text()
-    shares = await page.locator('strong[data-e2e="share-count"]').first.inner_text()
-    description = await page.locator('div[data-e2e="video-desc"]').first.inner_text()
-    title, tags = description_sanitize(description)
-    author = get_author_from_url(url)
-    
-    print(f"Likes: {likes} Comments: {comment_count}  Bookmarks: {bookmarks} Shares: {shares} Author: {author} \n Title: {title} Tags: {tags}")
+    with open(filepath, 'w', newline='', encoding='utf-8') as output_file:
+        dict_writer = csv.DictWriter(output_file, fieldnames=fieldnames)
+        dict_writer.writeheader()
+        for metadata in metadatas:
+            row = {k: v for k, v in metadata.__dict__.items() if k != "comments"}
+            dict_writer.writerow(row)
 
-    comment_button = page.get_by_role("button", name=re.compile("Read or add comments"))
-    await comment_button.first.click()
-    await asyncio.sleep(1.5)  # wait for comments to load
-    # print(await page.locator('div[class="TUXTabBar-content"]').count())
-    comment_block = page.locator('div[class="TUXTabBar-content"]').first
-    comments = await page.locator('span[data-e2e="comment-level-1"]').all_inner_texts()
-    print("Comments:")
-    for comment in comments:
-        print(f"- {comment}")
+def save_tiktok_metadata_json(metadatas: List[TiktokMetadata], filepath: Path) -> None:
+    import json
+    with open(filepath, 'w', encoding='utf-8') as output_file:
+        json.dump([s.__dict__ for s in metadatas], output_file, ensure_ascii=False, indent=4)
 
-    # views = await page.locator('strong[data-e2e="play-count"]').first.inner()
+async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadata:
+    try:
+        await page.goto(url, timeout=60000)
+        comment_count = await page.locator('strong[data-e2e="comment-count"]').first.inner_text()
+        likes = await page.locator('strong[data-e2e="like-count"]').first.inner_text()
+        bookmarks = await page.locator('strong[data-e2e="undefined-count"]').first.inner_text()
+        shares = await page.locator('strong[data-e2e="share-count"]').first.inner_text()
+        description = await page.locator('div[data-e2e="video-desc"]').first.inner_text()
+        title, tags = description_sanitize(description)
+        author = get_author_from_url(url)
+
+        comment_button = page.get_by_role("button", name=re.compile("Read or add comments"))
+        await comment_button.first.click()
+        await asyncio.sleep(1.2)
+        comment_block = page.locator('div[class="TUXTabBar-content"]').first
+        comments = await comment_block.locator('span[data-e2e="comment-level-1"]').all_inner_texts()
+
+        return TiktokMetadata(
+            link=url,
+            title=title,
+            tags=tags,
+            likes=likes,
+            author=author,
+            shares=shares,
+            bookmarks=bookmarks,
+            comment_count=comment_count,
+            comments=comments
+        )
+    except Exception as e:
+        if retry < 3:
+            await asyncio.sleep(2 ** retry)
+            return await fetch_tiktok_metadata(url, page, retry + 1)
+        else:
+            log(f"Failed to fetch metadata for {url}: {e}")
+            return TiktokMetadata(
+                link=url,
+                title="N/A",
+                tags="",
+                likes="0",
+                author="",
+                shares="0",
+                bookmarks="0",
+                comment_count="0",
+                comments=[]
+            )
+
+async def bulk_tiktok_metadata(urls: Set[str]) -> List[TiktokMetadata]:   
+    pass
 
 
-    
+async def single_tiktok_metadata(url: str, args: argparse.Namespace) -> TiktokMetadata:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        start = time.time()
+        await Stealth().apply_stealth_async(page)
+        metadata = await fetch_tiktok_metadata(url, page)
+        await browser.close()
+        return metadata
 
+
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Fetch metadata from TikTok URLs and export to CSV/JSON."
+    )
+
+    # single link
+    parser.add_argument(
+        "link",
+        nargs="?",
+        help="Single TikTok URL"
+    )
+
+    # Input: file with links
+    parser.add_argument(
+        "-r", "--read",
+        type=Path,
+        help="File containing one TikTok URL per line"
+    )
+
+    # Output basename
+    parser.add_argument(
+        "-o", "--output",
+        type=str,
+        metavar="BASENAME",
+        help="Base name for output files ('results' → results.csv, results.json)"
+    )
+
+    # Output flags: --csv [FILE], --json [FILE]
+    parser.add_argument(
+        "--csv",
+        nargs="?",
+        const=True,
+        metavar="FILE",
+        help="Export to CSV. If no FILE given, use --output or default 'output.csv'."
+    )
+    parser.add_argument(
+        "--json",
+        nargs="?",
+        const=True,
+        metavar="FILE",
+        help="Export to JSON. If no FILE given, use --output or default 'output.json'."
+    )
+
+    args = parser.parse_args()
+
+    # Validation: require input
+    if not args.link and not args.read:
+        parser.error("Either a LINK or --read FILE must be provided.")
+    if args.link and args.read:
+        parser.error("Specify either a LINK or --read FILE, not both.")
+
+    # Validation: require at least one output format
+    if not (args.csv or args.json):
+        parser.error("At least one output format (--csv or --json) is required.")
+
+    # If --csv/--json used *without* filename (i.e., const=True), derive path
+    if args.csv is True:
+        base = args.output or "output"
+        args.csv = Path(f"{base}.csv")
+    elif args.csv:
+        args.csv = Path(args.csv)
+
+    if args.json is True:
+        base = args.output or "output"
+        args.json = Path(f"{base}.json")
+    elif args.json:
+        args.json = Path(args.json)
+
+    return args
 
 
 async def main():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=False)
-        page = await browser.new_page()
-        # Example usage
-        url = "https://www.tiktok.com/@yum.bubs/video/7581714645912718623"
-        metadata = await fetch_tiktok_metadata(url, page)
-        # print(metadata)
-        await browser.close()
+    args = parse_args()
+    if args.link:
+        await single_tiktok_metadata(args.link, args)
+    # elif args.read:
+    #     urls = load_links(args.read)
+    #     await bulk_tiktok_metadata(urls, args)
 
 
 

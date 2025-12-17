@@ -44,7 +44,7 @@ python yt_shorts.py -r links.txt --csv --json
 Specify custom output filenames:
 
 ```bash
-python yt_shorts.py -r links.txt --csv results.csv --json results.json
+python yt_shorts.py -r links.txt --csv results.csv --json results.jsonf
 ```
 
 Use base name for both outputs (creates results.csv and results.json):
