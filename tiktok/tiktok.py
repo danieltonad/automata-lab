@@ -51,18 +51,9 @@ def optimal_chunk_size(n: int) -> int:
         ram_scale = min(ram_gb / 8.0, 3.0)
         speed_scale = min(clock_ghz / 2.5, 2.0)
         chunk = int(base * cpu_scale * ram_scale * speed_scale ** 0.5)
-        
-        # Clamp and ensure reasonable bounds
-        chunk = max(5, min(chunk, 30, n))
-        # decreasing chunk size slightly to improve balance
-        for candidate in range(chunk, max(4, chunk - 6), -1):
-            num_chunks = math.ceil(n / candidate)
-            last = n - (num_chunks - 1) * candidate
-            if last >= max(2, int(0.65 * candidate)):
-                return candidate
 
         # fallback to original balancing logic if refinement fails
-        max_chunk = min(25, n)
+        max_chunk = min(11, n)
         for candidate in range(max_chunk, 4, -1):
             num_chunks = math.ceil(n / candidate)
             last = n - (num_chunks - 1) * candidate
@@ -72,7 +63,7 @@ def optimal_chunk_size(n: int) -> int:
 
     except Exception:
         # Fallback to pure n-based logic (psutil not installed)
-        max_chunk = min(15, n)
+        max_chunk = min(11, n)
         for chunk in range(max_chunk, 4, -1):
             num_chunks = math.ceil(n / chunk)
             last_chunk = n - (num_chunks - 1) * chunk
@@ -223,6 +214,7 @@ async def bulk_tiktok_metadata(urls: Set[str], args: argparse.Namespace) -> List
             await asyncio.gather(*[page.close() for page in pages], return_exceptions=True)
             all_results.extend(chunk_results)
             total_completed += completed
+        
         stop = time.time()
         
     if args.csv:
