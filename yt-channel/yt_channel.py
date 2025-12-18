@@ -77,7 +77,7 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     subscribers = str(await rows[-3].inner_text()).lower().replace(" subscribers","").strip()
     joined = str(await rows[-4].inner_text()).lower().replace("joined ","").strip()
     country = str(await rows[-5].inner_text()).lower().strip().capitalize()
-    
+
     meta_data = ChannelMetaData(
         name=name,
         description=description,
@@ -100,11 +100,7 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     tabs = page.locator("div[class='tabGroupShapeTabs']")
     tabs_text = await tabs.all_inner_texts()
     tabs_dict = {tab.lower(): i for i, tab in enumerate(tabs_text[0].split('\n'))}
-    print(f"Raw Tabs: {tabs_dict}")
 
-    # print(f"Tabs: {tabs_dict}")
-    # await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(1).click()
-    # await asyncio.sleep(3)  # wait for dynamic content to load
 
     allowed = {f.name for f in fields(ChannelTabs)}
     filtered_tabs = {k: v for k, v in tabs_dict.items() if k in allowed}
@@ -112,6 +108,50 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     return meta_data, ChannelTabs(**filtered_tabs)
 
 
+async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
+    await page.goto(url)
+    tabs = page.locator("div[class='tabGroupShapeTabs']")
+    last_spin = True
+    # navigate to videos tab
+    await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
+    await asyncio.sleep(2)
+    await page.mouse.wheel(0, 7000)
+    
+    # continuous scrolling till all videos are loaded
+    while last_spin:
+        await page.mouse.wheel(0, 2500)
+        last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
+        await asyncio.sleep(0.5)
+
+    await asyncio.sleep(0.5)
+    containers = page.locator("div[class*='style-scope ytd-rich-item-renderer']")
+    size = await page.locator("div[class*='style-scope ytd-rich-item-renderer']").count()
+    videos = []
+    for i in range(size):
+        target = containers.nth(i)
+        await target.scroll_into_view_if_needed()
+        link = await target.locator( "a#thumbnail.ytd-thumbnail").get_attribute("href")
+        thumbnail = await target.locator( "a#thumbnail.ytd-thumbnail").locator("img[class='ytCoreImageHost ytCoreImageFillParentHeight ytCoreImageFillParentWidth ytCoreImageContentModeScaleAspectFill ytCoreImageLoaded']").nth(0).get_attribute("src")
+        duration = await target.locator("ytd-thumbnail #thumbnail .yt-badge-shape__text").first.inner_text()
+        title  = await target.locator("a[class='yt-simple-endpoint focus-on-expand style-scope ytd-rich-grid-media']").inner_text()
+        pane = target.locator("span[class*='inline-metadata-item style-scope ytd-video-meta-block']")
+        views = await pane.nth(0).inner_text()
+        views = views.replace(" views","")
+        publshed = await pane.nth(1).inner_text()
+        videos.append({
+            "title": title,
+            "link": f"https://www.youtube.com{link}",
+            "thumbnail": thumbnail,
+            "duration": duration,
+            "views": views,
+            "published": publshed
+        })
+
+    print(videos[-4:])
+    print(f"Found {size} video containers")
+    
+   
+    return videos
 
 
 async def grab_channel_info(url: str) -> ChannelMetaData:
@@ -122,6 +162,9 @@ async def grab_channel_info(url: str) -> ChannelMetaData:
         meta_data, tabs = await channel_data(url, page)
         print(f"Channel MetaData: {meta_data}")
         print(f"Channel Tabs: {tabs}")
+
+        videos = await pull_videos(url, page, tabs.videos) if tabs.videos is not None else None
+        # print(f"Videos: {videos}")
 
 async def main():
     await grab_channel_info("https://www.youtube.com/@mkbhd")
