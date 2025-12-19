@@ -4,6 +4,7 @@ from playwright.async_api import async_playwright
 from dataclasses import dataclass, fields
 from typing import List, Set, Tuple, Dict
 
+BATCH = 20
 
 @dataclass
 class ChannelMetaData:
@@ -108,6 +109,126 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     return meta_data, ChannelTabs(**filtered_tabs)
 
 
+async def extract_video_data(target):
+    data = await target.evaluate("""
+    el => {
+    const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
+    const imgEl = el.querySelector(
+        "a#thumbnail.ytd-thumbnail img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+    );
+    const durationEl = el.querySelector(
+        "ytd-thumbnail #thumbnail .yt-badge-shape__text"
+    );
+    const titleEl = el.querySelector(
+        "a.yt-simple-endpoint.focus-on-expand.style-scope.ytd-rich-grid-media"
+    );
+
+    const meta = el.querySelectorAll(
+        "span.inline-metadata-item.style-scope.ytd-video-meta-block"
+    );
+
+    return {
+        title: titleEl ? titleEl.innerText : null,
+        link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        duration: durationEl ? durationEl.innerText : null,
+        views: meta[0] ? meta[0].innerText.replace(" views", "") : null,
+        published: meta[1] ? meta[1].innerText : null
+    };
+    }
+    """)
+    return dict(data)
+
+async def extract_short_data(target):
+    data = await target.evaluate("""
+    el => {
+    const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
+    const imgEl = el.querySelector(
+        "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+    );
+    const titleEl = el.querySelector(
+        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
+    );
+
+    const meta = el.querySelectorAll(
+        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
+    );
+
+    return {
+        title:  meta[0] ? meta[0].innerText : null,
+        link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        views: meta[1] ? meta[1].innerText.replace(" views", "") : null,
+    };
+    }
+    """)
+    return dict(data)
+
+async def extract_live_data(target):
+    data = await target.evaluate(r"""
+        el => {
+        const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
+        const imgEl = el.querySelector(
+            "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+        );
+        const durationEl = el.querySelector(
+            "ytd-thumbnail #thumbnail .yt-badge-shape__text"
+        );
+        const titleEl = el.querySelector(
+            "a.yt-simple-endpoint.focus-on-expand.style-scope.ytd-rich-grid-media"
+        );
+
+        const metaEls = Array.from(
+            el.querySelectorAll("span.inline-metadata-item.style-scope.ytd-video-meta-block")
+        ).map(el => el.innerText.trim());
+
+        let views = null;
+        let published = null;
+
+        for (const text of metaEls) {
+            if (/views$/i.test(text)) {
+            views = text.replace(" views", "");
+            } else if (/streamed|ago|premiered/i.test(text)) {
+            published = text.replace(/^Streamed\s*/i, "");
+            }
+        }
+
+        return {
+            title: titleEl ? titleEl.innerText.replace(" [LIVE]", "") : null,
+            link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
+            thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+            duration: durationEl ? durationEl.innerText : null,
+            views,
+            published
+        };}""")
+    return dict(data)
+
+
+async def extract_playlist_data(target):
+    data = await target.evaluate("""
+    el => {
+    const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
+    const imgEl = el.querySelector(
+        "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+    );
+    const titleEl = el.querySelector(
+        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
+    );
+
+    const meta = el.querySelectorAll(
+        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
+    );
+
+    return {
+        title:  meta[0] ? meta[0].innerText : null,
+        link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        views: meta[1] ? meta[1].innerText.replace(" views", "") : null,
+    };
+    }
+    """)
+    return dict(data)
+
 async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
     await page.goto(url)
     tabs = page.locator("div[class='tabGroupShapeTabs']")
@@ -123,36 +244,114 @@ async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
         last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
         await asyncio.sleep(0.5)
 
-    await asyncio.sleep(0.5)
-    containers = page.locator("div[class*='style-scope ytd-rich-item-renderer']")
-    size = await page.locator("div[class*='style-scope ytd-rich-item-renderer']").count()
     videos = []
-    for i in range(size):
-        target = containers.nth(i)
-        await target.scroll_into_view_if_needed()
-        link = await target.locator( "a#thumbnail.ytd-thumbnail").get_attribute("href")
-        thumbnail = await target.locator( "a#thumbnail.ytd-thumbnail").locator("img[class='ytCoreImageHost ytCoreImageFillParentHeight ytCoreImageFillParentWidth ytCoreImageContentModeScaleAspectFill ytCoreImageLoaded']").nth(0).get_attribute("src")
-        duration = await target.locator("ytd-thumbnail #thumbnail .yt-badge-shape__text").first.inner_text()
-        title  = await target.locator("a[class='yt-simple-endpoint focus-on-expand style-scope ytd-rich-grid-media']").inner_text()
-        pane = target.locator("span[class*='inline-metadata-item style-scope ytd-video-meta-block']")
-        views = await pane.nth(0).inner_text()
-        views = views.replace(" views","")
-        publshed = await pane.nth(1).inner_text()
-        videos.append({
-            "title": title,
-            "link": f"https://www.youtube.com{link}",
-            "thumbnail": thumbnail,
-            "duration": duration,
-            "views": views,
-            "published": publshed
-        })
+    containers = page.locator("div[class*='style-scope ytd-rich-item-renderer']")
+    size = await containers.count()
 
-    print(videos[-4:])
-    print(f"Found {size} video containers")
+    for start in range(0, size, BATCH):
+        tasks = []
+        for i in range(start, min(start + BATCH, size)):
+            target = containers.nth(i)
+            tasks.append(extract_video_data(target))
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in batch_results:
+            if isinstance(r, dict):
+                videos.append(r)
     
-   
     return videos
 
+async def pull_shorts(url, page, tab_index: int) -> List[Dict[str, str]]:
+    await page.goto(url)
+    tabs = page.locator("div[class='tabGroupShapeTabs']")
+    last_spin = True
+    # navigate to shorts tab
+    await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
+    await asyncio.sleep(2)
+    await page.mouse.wheel(0, 7000)
+    
+    # continuous scrolling till all shorts are loaded
+    while last_spin:
+        await page.mouse.wheel(0, 2500)
+        last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
+        await asyncio.sleep(0.5)
+
+    shorts = []
+    containers = page.locator("div[class*='style-scope ytd-rich-item-renderer']")
+    size = await containers.count()
+
+    for start in range(0, size, BATCH):
+        tasks = []
+        for i in range(start, min(start + BATCH, size)):
+            target = containers.nth(i)
+            tasks.append(extract_short_data(target))
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in batch_results:
+            if isinstance(r, dict):
+                shorts.append(r)
+
+    return shorts
+
+async def pull_live_streams(url, page, tab_index: int) -> List[Dict[str, str]]:
+    await page.goto(url)
+    tabs = page.locator("div[class='tabGroupShapeTabs']")
+    last_spin = True
+    # navigate to shorts tab
+    await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
+    await asyncio.sleep(2)
+    await page.mouse.wheel(0, 7000)
+    
+    # continuous scrolling till all shorts are loaded
+    while last_spin:
+        await page.mouse.wheel(0, 2500)
+        last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
+        await asyncio.sleep(0.5)
+
+    live_streams = []
+    containers = page.locator("div.style-scope.ytd-rich-item-renderer")
+    size = await containers.count()
+
+    for start in range(0, size, BATCH):
+        tasks = []
+        for i in range(start, min(start + BATCH, size)):
+            target = containers.nth(i)
+            tasks.append(extract_live_data(target))
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in batch_results:
+            if isinstance(r, dict):
+                live_streams.append(r)
+
+    return live_streams
+    
+async def pull_playlists(url, page, tab_index: int) -> List[Dict[str, str]]:
+    await page.goto(url)
+    tabs = page.locator("div[class='tabGroupShapeTabs']")
+    last_spin = True
+    # navigate to shorts tab
+    await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
+    await asyncio.sleep(2)
+    await page.mouse.wheel(0, 7000)
+    
+    # continuous scrolling till all shorts are loaded
+    while last_spin:
+        await page.mouse.wheel(0, 2500)
+        last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
+        await asyncio.sleep(0.5)
+    
+    playlists = []
+    containers = page.locator("div.yt-lockup-view-model.yt-lockup-view-model--vertical")
+    size = await containers.count()
+
+    for start in range(0, size, BATCH):
+        tasks = []
+        for i in range(start, min(start + BATCH, size)):
+            target = containers.nth(i)
+            tasks.append(extract_playlist_data(target))
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in batch_results:
+            if isinstance(r, dict):
+                playlists.append(r)
+
+    return playlists
 
 async def grab_channel_info(url: str) -> ChannelMetaData:
     async with async_playwright() as p:
@@ -160,11 +359,19 @@ async def grab_channel_info(url: str) -> ChannelMetaData:
         context = await browser.new_context()
         page = await context.new_page()
         meta_data, tabs = await channel_data(url, page)
-        print(f"Channel MetaData: {meta_data}")
-        print(f"Channel Tabs: {tabs}")
 
-        videos = await pull_videos(url, page, tabs.videos) if tabs.videos is not None else None
-        # print(f"Videos: {videos}")
+        # meta_data.videos = await pull_videos(url, page, tabs.videos) if tabs.videos is not None else None
+        # meta_data.shorts = await pull_shorts(url, page, tabs.shorts) if tabs.shorts is not None else None
+        # meta_data.live_streams = await pull_live_streams(url, page, tabs.live) if tabs.live is not None else None
+
+        meta_data.live_streams = await pull_playlists(url, page, tabs.live) if tabs.live is not None else None
+
+
+        print(meta_data.live_streams, f"Playlists: {len(meta_data.live_streams)}")
+
+        # print(f"Videos: {len(meta_data.videos)} | Shorts: {len(meta_data.shorts)}")
+        # print(meta_data.videos[-2:] if meta_data.videos else "No videos found")
+        # print(meta_data.shorts[-2:] if meta_data.shorts else "No shorts found")
 
 async def main():
     await grab_channel_info("https://www.youtube.com/@mkbhd")
@@ -172,3 +379,8 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+# Found 1625 video containers
+# 520 seconds -> single
+# 173.50 seconds -> batch
