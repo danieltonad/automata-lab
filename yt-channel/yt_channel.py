@@ -22,6 +22,7 @@ class ChannelMetaData:
     shorts: List[Dict[str, str]] | None
     playlists: List[Dict[str, str]] | None
     live_streams: List[Dict[str, str]] | None
+    podcasts: List[Dict[str, str]] | None
 
 @dataclass
 class ChannelTabs:
@@ -30,6 +31,7 @@ class ChannelTabs:
     shorts: int | None
     playlists: int | None
     live: int | None
+    podcasts: int | None
 
 
 class Colors:
@@ -51,6 +53,10 @@ def to_int(value) -> int:
         return int(float(v[:-1]) * 1_000_000_000)
     return int(float(v))
 
+def save_meta_data_json(meta_data: ChannelMetaData, file: Path):
+    import json
+    with open(file, 'w', encoding='utf-8') as f:
+        json.dump(meta_data.__dict__, f, ensure_ascii=False, indent=4)
 
 async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     await page.goto(url, timeout=60000)
@@ -93,7 +99,8 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
         videos=None,
         shorts=None,
         playlists=None,
-        live_streams=None
+        live_streams=None,
+        podcasts=None,
     )
 
 
@@ -102,14 +109,12 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     tabs_text = await tabs.all_inner_texts()
     tabs_dict = {tab.lower(): i for i, tab in enumerate(tabs_text[0].split('\n'))}
 
-
     allowed = {f.name for f in fields(ChannelTabs)}
-    filtered_tabs = {k: v for k, v in tabs_dict.items() if k in allowed}
+    filtered_tabs = {name: tabs_dict.get(name, None) for name in allowed}
 
     return meta_data, ChannelTabs(**filtered_tabs)
 
-
-async def extract_video_data(target):
+async def extract_video_data(target) -> dict:
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
@@ -139,7 +144,7 @@ async def extract_video_data(target):
     """)
     return dict(data)
 
-async def extract_short_data(target):
+async def extract_short_data(target) -> dict:
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
@@ -164,7 +169,7 @@ async def extract_short_data(target):
     """)
     return dict(data)
 
-async def extract_live_data(target):
+async def extract_live_data(target) -> dict:
     data = await target.evaluate(r"""
         el => {
         const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
@@ -203,27 +208,37 @@ async def extract_live_data(target):
         };}""")
     return dict(data)
 
-
-async def extract_playlist_data(target):
+async def extract_playlist_data(target) -> dict:
     data = await target.evaluate("""
     el => {
-    const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
-    const imgEl = el.querySelector(
-        "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
-    );
-    const titleEl = el.querySelector(
-        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
-    );
-
-    const meta = el.querySelectorAll(
-        "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
-    );
+    const linkEl = el.querySelector("a.yt-lockup-view-model__content-image");
+    const imgEl = el.querySelector("img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth");
+    const badgeEl = el.querySelector("div.yt-badge-shape__text")
+    const meta = el.querySelectorAll("span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap");
 
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
         thumbnail: imgEl ? imgEl.getAttribute("src") : null,
-        views: meta[1] ? meta[1].innerText.replace(" views", "") : null,
+        badge: badgeEl ? badgeEl.innerText : null,
+    };
+    }
+    """)
+    return dict(data)
+
+async def extract_podcast_data(target) -> dict:
+    data = await target.evaluate("""
+    el => {
+    const linkEl = el.querySelector("a.yt-lockup-view-model__content-image");
+    const imgEl = el.querySelector("img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth");
+    const badgeEl = el.querySelector("div.yt-badge-shape__text")
+    const meta = el.querySelectorAll("span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap");
+
+    return {
+        title:  meta[0] ? meta[0].innerText : null,
+        link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        badge: badgeEl ? badgeEl.innerText : null,
     };
     }
     """)
@@ -295,7 +310,7 @@ async def pull_live_streams(url, page, tab_index: int) -> List[Dict[str, str]]:
     await page.goto(url)
     tabs = page.locator("div[class='tabGroupShapeTabs']")
     last_spin = True
-    # navigate to shorts tab
+    # navigate to live tab
     await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
     await asyncio.sleep(2)
     await page.mouse.wheel(0, 7000)
@@ -326,7 +341,38 @@ async def pull_playlists(url, page, tab_index: int) -> List[Dict[str, str]]:
     await page.goto(url)
     tabs = page.locator("div[class='tabGroupShapeTabs']")
     last_spin = True
-    # navigate to shorts tab
+    # navigate to playlists tab
+    await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
+    await asyncio.sleep(2)
+    await page.mouse.wheel(0, 7000)
+    
+    # continuous scrolling till all shorts are loaded
+    while last_spin:
+        await page.mouse.wheel(0, 2500)
+        last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
+        await asyncio.sleep(0.5)
+    
+    playlists = []
+    containers = page.locator("div.yt-lockup-view-model.yt-lockup-view-model--vertical")
+    size = await containers.count()
+
+    for start in range(0, size, BATCH):
+        tasks = []
+        for i in range(start, min(start + BATCH, size)):
+            target = containers.nth(i)
+            tasks.append(extract_playlist_data(target))
+        batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+        for r in batch_results:
+            if isinstance(r, dict):
+                playlists.append(r)
+
+    return playlists
+    
+async def pull_podcasts(url, page, tab_index: int) -> List[Dict[str, str]]:
+    await page.goto(url)
+    tabs = page.locator("div[class='tabGroupShapeTabs']")
+    last_spin = True
+    # navigate to playlists tab
     await tabs.locator('.yt-tab-shape.yt-tab-shape--host-clickable').nth(tab_index).click()
     await asyncio.sleep(2)
     await page.mouse.wheel(0, 7000)
@@ -353,28 +399,84 @@ async def pull_playlists(url, page, tab_index: int) -> List[Dict[str, str]]:
 
     return playlists
 
+async def scrape_with_context(browser, coro):
+    """
+    Utility to run a scraper in its own context/page.
+    """
+    context = await browser.new_context()
+    page = await context.new_page()
+    try:
+        return await coro(page)
+    finally:
+        await context.close()
+
 async def grab_channel_info(url: str) -> ChannelMetaData:
+    start = time.time()
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        page = await context.new_page()
-        meta_data, tabs = await channel_data(url, page)
 
-        # meta_data.videos = await pull_videos(url, page, tabs.videos) if tabs.videos is not None else None
-        # meta_data.shorts = await pull_shorts(url, page, tabs.shorts) if tabs.shorts is not None else None
-        # meta_data.live_streams = await pull_live_streams(url, page, tabs.live) if tabs.live is not None else None
+        # --- Initial context to discover tabs & metadata ---
+        base_context = await browser.new_context()
+        base_page = await base_context.new_page()
 
-        meta_data.live_streams = await pull_playlists(url, page, tabs.live) if tabs.live is not None else None
+        meta_data, tabs = await channel_data(url, base_page)
+        await base_context.close()
 
+        tasks = {}
 
-        print(meta_data.live_streams, f"Playlists: {len(meta_data.live_streams)}")
+        if tabs.videos:
+            tasks["videos"] = scrape_with_context(
+                browser,
+                lambda page: pull_videos(url, page, tabs.videos)
+            )
 
-        # print(f"Videos: {len(meta_data.videos)} | Shorts: {len(meta_data.shorts)}")
-        # print(meta_data.videos[-2:] if meta_data.videos else "No videos found")
-        # print(meta_data.shorts[-2:] if meta_data.shorts else "No shorts found")
+        if tabs.shorts:
+            tasks["shorts"] = scrape_with_context(
+                browser,
+                lambda page: pull_shorts(url, page, tabs.shorts)
+            )
+
+        if tabs.live:
+            tasks["live_streams"] = scrape_with_context(
+                browser,
+                lambda page: pull_live_streams(url, page, tabs.live)
+            )
+
+        if tabs.playlists:
+            tasks["playlists"] = scrape_with_context(
+                browser,
+                lambda page: pull_playlists(url, page, tabs.playlists)
+            )
+
+        if tabs.podcasts:
+            tasks["podcasts"] = scrape_with_context(
+                browser,
+                lambda page: pull_podcasts(url, page, tabs.podcasts)
+            )
+
+        # --- Run all scrapers concurrently ---
+        results = await asyncio.gather(*tasks.values())
+
+        # --- Assign results back to metadata ---
+        for key, value in zip(tasks.keys(), results):
+            setattr(meta_data, key, value)
+
+        await browser.close()
+
+    # if meta_data.podcasts:
+    #     print(meta_data.podcasts[-1], f"Podcasts: {len(meta_data.podcasts)}")
+
+    save_meta_data_json(meta_data, Path("channel.json"))
+
+    end = time.time()
+    print(f"Time taken: {end - start:.2f} seconds")
+
+    return meta_data
 
 async def main():
-    await grab_channel_info("https://www.youtube.com/@mkbhd")
+    # await grab_channel_info("https://www.youtube.com/@mkbhd")
+    await grab_channel_info("https://www.youtube.com/@tseries")
 
 
 if __name__ == "__main__":
