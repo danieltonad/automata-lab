@@ -57,6 +57,7 @@ def save_meta_data_json(meta_data: ChannelMetaData, file: Path):
     import json
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(meta_data.__dict__, f, ensure_ascii=False, indent=4)
+    print(f"{Colors.GREEN}Saved metadata to {file}{Colors.RESET}")
 
 async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     await page.goto(url, timeout=60000)
@@ -115,11 +116,13 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     return meta_data, ChannelTabs(**filtered_tabs)
 
 async def extract_video_data(target) -> dict:
+    await target.scroll_into_view_if_needed()
+    await target.wait_for_element_state("stable")
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
     const imgEl = el.querySelector(
-        "a#thumbnail.ytd-thumbnail img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+        "img.ytCoreImageHost.ytCoreImageFillParentHeight"
     );
     const durationEl = el.querySelector(
         "ytd-thumbnail #thumbnail .yt-badge-shape__text"
@@ -135,7 +138,7 @@ async def extract_video_data(target) -> dict:
     return {
         title: titleEl ? titleEl.innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
         duration: durationEl ? durationEl.innerText : null,
         views: meta[0] ? meta[0].innerText.replace(" views", "") : null,
         published: meta[1] ? meta[1].innerText : null
@@ -145,11 +148,13 @@ async def extract_video_data(target) -> dict:
     return dict(data)
 
 async def extract_short_data(target) -> dict:
+    await target.scroll_into_view_if_needed()
+    await target.wait_for_element_state("stable")
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
     const imgEl = el.querySelector(
-        "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+        "img.ytCoreImageHost.ytCoreImageFillParentHeight"
     );
     const titleEl = el.querySelector(
         "span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap"
@@ -162,7 +167,7 @@ async def extract_short_data(target) -> dict:
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
         views: meta[1] ? meta[1].innerText.replace(" views", "") : null,
     };
     }
@@ -170,11 +175,13 @@ async def extract_short_data(target) -> dict:
     return dict(data)
 
 async def extract_live_data(target) -> dict:
+    await target.scroll_into_view_if_needed()
+    await target.wait_for_element_state("stable")
     data = await target.evaluate(r"""
         el => {
         const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
         const imgEl = el.querySelector(
-            "img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth.ytCoreImageContentModeScaleAspectFill.ytCoreImageLoaded"
+            "img.ytCoreImageHost.ytCoreImageFillParentHeight"
         );
         const durationEl = el.querySelector(
             "ytd-thumbnail #thumbnail .yt-badge-shape__text"
@@ -186,10 +193,8 @@ async def extract_live_data(target) -> dict:
         const metaEls = Array.from(
             el.querySelectorAll("span.inline-metadata-item.style-scope.ytd-video-meta-block")
         ).map(el => el.innerText.trim());
-
-        let views = null;
+                                 
         let published = null;
-
         for (const text of metaEls) {
             if (/views$/i.test(text)) {
             views = text.replace(" views", "");
@@ -201,25 +206,25 @@ async def extract_live_data(target) -> dict:
         return {
             title: titleEl ? titleEl.innerText.replace(" [LIVE]", "") : null,
             link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-            thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+            thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
             duration: durationEl ? durationEl.innerText : null,
-            views,
             published
         };}""")
     return dict(data)
 
 async def extract_playlist_data(target) -> dict:
+    await target.scroll_into_view_if_needed()
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a.yt-lockup-view-model__content-image");
-    const imgEl = el.querySelector("img.ytCoreImageHost.ytCoreImageFillParentHeight.ytCoreImageFillParentWidth");
+    const imgEl = el.querySelector("img.ytCoreImageHost");
     const badgeEl = el.querySelector("div.yt-badge-shape__text")
     const meta = el.querySelectorAll("span.yt-core-attributed-string.yt-core-attributed-string--white-space-pre-wrap");
 
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
         badge: badgeEl ? badgeEl.innerText : null,
     };
     }
@@ -227,6 +232,7 @@ async def extract_playlist_data(target) -> dict:
     return dict(data)
 
 async def extract_podcast_data(target) -> dict:
+    await target.scroll_into_view_if_needed()
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a.yt-lockup-view-model__content-image");
@@ -237,7 +243,7 @@ async def extract_podcast_data(target) -> dict:
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
         badge: badgeEl ? badgeEl.innerText : null,
     };
     }
@@ -464,9 +470,6 @@ async def grab_channel_info(url: str) -> ChannelMetaData:
 
         await browser.close()
 
-    # if meta_data.podcasts:
-    #     print(meta_data.podcasts[-1], f"Podcasts: {len(meta_data.podcasts)}")
-
     save_meta_data_json(meta_data, Path("channel.json"))
 
     end = time.time()
@@ -475,8 +478,8 @@ async def grab_channel_info(url: str) -> ChannelMetaData:
     return meta_data
 
 async def main():
-    # await grab_channel_info("https://www.youtube.com/@mkbhd")
-    await grab_channel_info("https://www.youtube.com/@tseries")
+    await grab_channel_info("https://www.youtube.com/@mkbhd")
+    # await grab_channel_info("https://www.youtube.com/@tseries")
 
 
 if __name__ == "__main__":
