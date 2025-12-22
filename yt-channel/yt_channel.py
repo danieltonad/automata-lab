@@ -117,7 +117,6 @@ async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
 
 async def extract_video_data(target) -> dict:
     await target.scroll_into_view_if_needed()
-    await target.wait_for_element_state("stable")
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
@@ -138,7 +137,7 @@ async def extract_video_data(target) -> dict:
     return {
         title: titleEl ? titleEl.innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") : null,
         duration: durationEl ? durationEl.innerText : null,
         views: meta[0] ? meta[0].innerText.replace(" views", "") : null,
         published: meta[1] ? meta[1].innerText : null
@@ -149,7 +148,6 @@ async def extract_video_data(target) -> dict:
 
 async def extract_short_data(target) -> dict:
     await target.scroll_into_view_if_needed()
-    await target.wait_for_element_state("stable")
     data = await target.evaluate("""
     el => {
     const linkEl = el.querySelector("a.shortsLockupViewModelHostEndpoint.shortsLockupViewModelHostOutsideMetadataEndpoint");
@@ -167,7 +165,7 @@ async def extract_short_data(target) -> dict:
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") : null,
         views: meta[1] ? meta[1].innerText.replace(" views", "") : null,
     };
     }
@@ -176,7 +174,6 @@ async def extract_short_data(target) -> dict:
 
 async def extract_live_data(target) -> dict:
     await target.scroll_into_view_if_needed()
-    await target.wait_for_element_state("stable")
     data = await target.evaluate(r"""
         el => {
         const linkEl = el.querySelector("a#thumbnail.ytd-thumbnail");
@@ -206,7 +203,7 @@ async def extract_live_data(target) -> dict:
         return {
             title: titleEl ? titleEl.innerText.replace(" [LIVE]", "") : null,
             link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-            thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
+            thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") : null,
             duration: durationEl ? durationEl.innerText : null,
             published
         };}""")
@@ -224,7 +221,7 @@ async def extract_playlist_data(target) -> dict:
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") : null,
         badge: badgeEl ? badgeEl.innerText : null,
     };
     }
@@ -243,12 +240,14 @@ async def extract_podcast_data(target) -> dict:
     return {
         title:  meta[0] ? meta[0].innerText : null,
         link: linkEl ? "https://www.youtube.com" + linkEl.getAttribute("href") : null,
-        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") || imgEl.currentSrc || (imgEl.srcset ? imgEl.srcset.split(" ")[0] : null) : null,
+        thumbnail: imgEl ? imgEl.getAttribute("src") || imgEl.getAttribute("data-src") : null,
         badge: badgeEl ? badgeEl.innerText : null,
     };
     }
     """)
     return dict(data)
+
+
 
 async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
     await page.goto(url)
