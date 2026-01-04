@@ -3,7 +3,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from dataclasses import dataclass, fields
-from typing import List, Set, Tuple, Dict
+from typing import List, Tuple, Dict
 
 BATCH = 15
 _spinner_task = None
@@ -60,15 +60,17 @@ async def _spinner(msg):
 
 def show_spinner(msg):
     global _spinner_task
-    loop = asyncio.get_running_loop()
-    _spinner_task = loop.create_task(_spinner(msg))
+    _spinner_task = asyncio.create_task(_spinner(msg))
 
-def off_spinner():
+async def off_spinner():
     global _spinner_task
     if _spinner_task:
         _spinner_task.cancel()
+        try:
+            await _spinner_task
+        except asyncio.CancelledError:
+            pass
         _spinner_task = None
-    sys.stdout.flush()
 
 def normalize_yt_channel(input_value: str) -> str:
     if not input_value or not input_value.strip():
@@ -524,7 +526,6 @@ async def grab_channel_info(url: str) -> None:
                 browser,
                 lambda page: pull_podcasts(url, page, tabs.podcasts)
             )
-
         # --- Run scrapers concurrently ---
         results = await asyncio.gather(*tasks.values())
 
@@ -533,7 +534,7 @@ async def grab_channel_info(url: str) -> None:
             setattr(meta_data, key, value)
         await browser.close()
     
-    off_spinner()
+    await off_spinner()
     save_meta_data_json(meta_data, Path("channel.json"), time=time_taken(start, time.time()))
 
 async def main():
@@ -542,13 +543,7 @@ async def main():
         sys.exit(1)
     channel_input = sys.argv[1]
     await grab_channel_info(normalize_yt_channel(channel_input))
-    # await grab_channel_info("https://www.youtube.com/@tseries")
 
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-
-# Found 1625 video containers
-# 520 seconds -> single
-# 173.50 seconds -> batch
