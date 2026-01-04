@@ -1,10 +1,12 @@
-import asyncio, argparse, sys, math, random, time, re
+import asyncio, sys, time, re
 from pathlib import Path
+from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 from dataclasses import dataclass, fields
 from typing import List, Set, Tuple, Dict
 
-BATCH = 20
+BATCH = 15
+_spinner_task = None
 
 @dataclass
 class ChannelMetaData:
@@ -41,6 +43,57 @@ class Colors:
     BLUE = "\033[34m"
     GRAY = "\033[90m"
 
+
+async def _spinner(msg):
+    symbols = "|/-\\"
+    i = 0
+    try:
+        while True:
+            sys.stdout.write(f"\r{msg} {symbols[i % len(symbols)]}")
+            sys.stdout.flush()
+            i += 1
+            await asyncio.sleep(0.1)
+    except asyncio.CancelledError:
+        sys.stdout.write("\r" + " " * (len(msg) + 4) + "\r")
+        sys.stdout.flush()
+        raise
+
+def show_spinner(msg):
+    global _spinner_task
+    loop = asyncio.get_running_loop()
+    _spinner_task = loop.create_task(_spinner(msg))
+
+def off_spinner():
+    global _spinner_task
+    if _spinner_task:
+        _spinner_task.cancel()
+        _spinner_task = None
+    sys.stdout.flush()
+
+def normalize_yt_channel(input_value: str) -> str:
+    if not input_value or not input_value.strip():
+        raise ValueError("Empty channel input")
+    value = input_value.strip()
+    # Already a URL
+    if value.startswith(("http://", "https://")):
+        parsed = urlparse(value)
+        if "youtube.com" not in parsed.netloc and "youtu.be" not in parsed.netloc:
+            raise ValueError("Not a YouTube URL")
+        # Remove query params, fragments, trailing slashes
+        clean_path = parsed.path.rstrip("/")
+        return f"https://www.youtube.com{clean_path}"
+    # Handle @username
+    if value.startswith("@"):
+        handle = value[1:]
+        if not handle:
+            raise ValueError("Invalid handle")
+        return f"https://www.youtube.com/@{handle}"
+    # Channel
+    if re.fullmatch(r"UC[a-zA-Z0-9_-]{22}", value):
+        return f"https://www.youtube.com/channel/{value}"
+    # Plain username
+    return f"https://www.youtube.com/{value}"
+
 def to_int(value) -> int:
     if isinstance(value, (int, float)):
         return int(value)
@@ -53,11 +106,27 @@ def to_int(value) -> int:
         return int(float(v[:-1]) * 1_000_000_000)
     return int(float(v))
 
-def save_meta_data_json(meta_data: ChannelMetaData, file: Path):
+def time_taken(start: float, stop: float) -> str:
+    elapsed = stop - start
+    hours = int(elapsed // 3600)
+    minutes = int((elapsed % 3600) // 60)
+    seconds = int(elapsed % 60)
+
+    parts = []
+    if hours:
+        parts.append(f"{hours}h")
+    if minutes:
+        parts.append(f"{minutes}m")
+    if seconds or not parts:
+        parts.append(f"{seconds}s")
+
+    return " ".join(parts)
+
+def save_meta_data_json(meta_data: ChannelMetaData, file: Path, time: str):
     import json
     with open(file, 'w', encoding='utf-8') as f:
         json.dump(meta_data.__dict__, f, ensure_ascii=False, indent=4)
-    print(f"{Colors.GREEN}Saved metadata to {file}{Colors.RESET}")
+    print(f"{Colors.GREEN}Saved metadata to {file} in [{time}] {Colors.RESET}")
 
 async def channel_data(url: str, page) -> Tuple[ChannelMetaData, ChannelTabs]:
     await page.goto(url, timeout=60000)
@@ -406,7 +475,7 @@ async def pull_podcasts(url, page, tab_index: int) -> List[Dict[str, str]]:
 
 async def scrape_with_context(browser, coro):
     """
-    Utility to run a scraper in its own context/page.
+    Utility to run a scraper in its own context.
     """
     context = await browser.new_context()
     page = await context.new_page()
@@ -415,21 +484,17 @@ async def scrape_with_context(browser, coro):
     finally:
         await context.close()
 
-async def grab_channel_info(url: str) -> ChannelMetaData:
+async def grab_channel_info(url: str) -> None:
+    show_spinner("Grabbing channel info")
     start = time.time()
-
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-
-        # --- Initial context to discover tabs & metadata ---
         base_context = await browser.new_context()
         base_page = await base_context.new_page()
 
         meta_data, tabs = await channel_data(url, base_page)
         await base_context.close()
-
         tasks = {}
-
         if tabs.videos:
             tasks["videos"] = scrape_with_context(
                 browser,
@@ -460,24 +525,23 @@ async def grab_channel_info(url: str) -> ChannelMetaData:
                 lambda page: pull_podcasts(url, page, tabs.podcasts)
             )
 
-        # --- Run all scrapers concurrently ---
+        # --- Run scrapers concurrently ---
         results = await asyncio.gather(*tasks.values())
 
         # --- Assign results back to metadata ---
         for key, value in zip(tasks.keys(), results):
             setattr(meta_data, key, value)
-
         await browser.close()
-
-    save_meta_data_json(meta_data, Path("channel.json"))
-
-    end = time.time()
-    print(f"Time taken: {end - start:.2f} seconds")
-
-    return meta_data
+    
+    off_spinner()
+    save_meta_data_json(meta_data, Path("channel.json"), time=time_taken(start, time.time()))
 
 async def main():
-    await grab_channel_info("https://www.youtube.com/@mkbhd")
+    if len(sys.argv) < 2:
+        print("Usage: python yt-channel.py <channel_name_or_link>")
+        sys.exit(1)
+    channel_input = sys.argv[1]
+    await grab_channel_info(normalize_yt_channel(channel_input))
     # await grab_channel_info("https://www.youtube.com/@tseries")
 
 
