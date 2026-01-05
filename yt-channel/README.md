@@ -92,11 +92,11 @@ Note: Only tabs available on the channel will be scraped. Some channels may not 
 
 ## 🚀 Performance
 
-The script uses Playwright with adaptive concurrency to scrape channel tabs efficiently. Content is scraped in batches (default: 15 items per batch). For channels with many videos, scraping stops at 3,500 videos to prevent excessive load times.
+The script uses Playwright with adaptive concurrency to scrape channel tabs efficiently. Content is scraped in batches (default: 15 items per batch). For channels with many videos, scraping stops at 3,500+ videos to prevent excessive load times.
 
 ## 🛠️ Troubleshooting
 
 - Install error for `playwright`: ensure you have run `playwright install chromium`.
 - Empty or partial results: YouTube UI can change; update Playwright and try again.
 - Slow runs: channels with many videos/shorts take longer to scrape. The script will display progress as it works.
-- Logs: failures are appended to `yt_shorts.log` in the project directory.
+- Logs: failures are appended to `yt_channel.log` in the project directory.
