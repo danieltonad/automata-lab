@@ -662,7 +662,6 @@ async def grab_channel_info(url: str) -> None:
         
         await off_spinner()
         save_meta_data_json(meta_data, Path("channel.json"), time=time_taken(start, time.time()))
-        print(f"Shorts: {len(meta_data.shorts):,} | Playlists: {len(meta_data.playlists):,} | Live Streams: {len(meta_data.live_streams):,} | Videos: {len(meta_data.videos):,} | Podcasts: {len(meta_data.podcasts):,}")
     except Exception as e:
         await off_spinner()
         log(f"Error in grab_channel_info: {e}")
