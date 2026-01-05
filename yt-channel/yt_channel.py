@@ -6,6 +6,7 @@ from dataclasses import dataclass, fields
 from typing import List, Tuple, Dict
 
 BATCH = 15
+VID_LIMIT = 3_500
 _spinner_task = None
 
 @dataclass
@@ -415,6 +416,16 @@ async def extract_podcast_data(target) -> dict:
     return dict(data)
 
 
+async def get_video_ids(page) -> set[str]:
+    return set(await page.evaluate("""
+        () => Array.from(
+            document.querySelectorAll("a[href*='watch?v=']")
+        ).map(a => {
+            const m = a.href.match(/v=([^&]+)/);
+            return m ? m[1] : null;
+        }).filter(Boolean)
+    """))
+
 
 async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
     try:
@@ -431,6 +442,9 @@ async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
             await page.mouse.wheel(0, 2500)
             last_spin = await page.locator("div[class*='circle-clipper left style-scope tp-yt-paper-spinner']").nth(1).is_visible()
             await asyncio.sleep(0.5)
+            vids = await get_video_ids(page)
+            if len(vids) >= VID_LIMIT:
+                break
 
         videos = []
         containers = page.locator("div[class*='style-scope ytd-rich-item-renderer']")
@@ -449,7 +463,6 @@ async def pull_videos(url, page, tab_index: int) -> List[Dict[str, str]]:
     except Exception as e:
         log(f"Error in pull_videos: {e}")
         return []
-
 
 async def pull_shorts(url, page, tab_index: int) -> List[Dict[str, str]]:
     try:
@@ -649,6 +662,7 @@ async def grab_channel_info(url: str) -> None:
         
         await off_spinner()
         save_meta_data_json(meta_data, Path("channel.json"), time=time_taken(start, time.time()))
+        print(f"Shorts: {len(meta_data.shorts):,} | Playlists: {len(meta_data.playlists):,} | Live Streams: {len(meta_data.live_streams):,} | Videos: {len(meta_data.videos):,} | Podcasts: {len(meta_data.podcasts):,}")
     except Exception as e:
         await off_spinner()
         log(f"Error in grab_channel_info: {e}")

@@ -37,19 +37,40 @@ Part of [automata-lab](https://github.com/danieltonad/automata-lab).
 
 ## 📖 Usage
 
-To scrape metadata from a YouTube channel, run the following command:
+Scrape a YouTube channel by providing a channel URL, handle, ID, or username:
 
 ```bash
-python yt_channel.py <channel_url>
+python yt_channel.py <channel_name_or_link_or_id>
 ```
 
-### Parameters:
+### Supported Input Formats:
 
-- `<channel_url>`: The URL of the YouTube channel you want to scrape.
+- Full channel URL: `https://www.youtube.com/@channelhandle` or `https://www.youtube.com/channel/UC...`
+- Channel handle: `@channelhandle`
+- Channel ID: `UCxxxxxxxxxxxxxxxxxxxx` (24-character ID starting with UC)
+- Plain username: `channelname`
 
-### Output:
+### Examples:
 
-The tool will output the channel metadata in JSON format, including:
+```bash
+# Using channel handle
+python yt_channel.py @mkbhd
+
+# Using full URL
+python yt_channel.py https://www.youtube.com/@mkbhd
+
+# Using channel ID
+python yt_channel.py UCBJycsmduvYEL83R_U4JriQ
+
+# Using plain username
+python yt_channel.py mkbhd
+```
+
+## 📦 Output
+
+The tool saves channel metadata to `channel.json` in the current directory and displays a summary of content counts.
+
+JSON fields:
 
 - `name`: Channel Name
 - `description`: Channel Description
@@ -60,23 +81,22 @@ The tool will output the channel metadata in JSON format, including:
 - `joined`: Join Date
 - `channel_image`: Channel Image URL
 - `channel_banner`: Channel Banner URL
-- `links`: External Links
-- `videos`: Videos List
-- `shorts`: Shorts List
-- `playlists`: Playlists List
-- `live_streams`: Live Streams List
-- `podcasts`: Podcasts List
+- `links`: External Links (Dictionary)
+- `videos`: Array of video objects (title, link, thumbnail, duration, views, published)
+- `shorts`: Array of shorts objects (title, link, thumbnail, views)
+- `playlists`: Array of playlist objects (title, link, thumbnail, badge)
+- `live_streams`: Array of live stream objects (title, link, thumbnail, duration, published)
+- `podcasts`: Array of podcast objects (title, link, thumbnail, badge)
 
-### Example:
+Note: Only tabs available on the channel will be scraped. Some channels may not have all content types.
 
-```bash
-python yt_channel.py https://www.youtube.com/c/YourChannelName
-```
+## 🚀 Performance
 
-### Logs:
+The script uses Playwright with adaptive concurrency to scrape channel tabs efficiently. Content is scraped in batches (default: 15 items per batch). For channels with many videos, scraping stops at 3,500 videos to prevent excessive load times.
 
-Failures are logged in `yt_channel.log` in the project directory.
+## 🛠️ Troubleshooting
 
-## License
-
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+- Install error for `playwright`: ensure you have run `playwright install chromium`.
+- Empty or partial results: YouTube UI can change; update Playwright and try again.
+- Slow runs: channels with many videos/shorts take longer to scrape. The script will display progress as it works.
+- Logs: failures are appended to `yt_shorts.log` in the project directory.
