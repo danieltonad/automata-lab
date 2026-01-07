@@ -10,4 +10,5 @@ Built for reliability, not just prototyping.
 | [`yt-shorts`](yt-shorts/) | Extract metadata from YouTube Shorts (title, views, likes, comments) | ✅
 | [`tiktok`](tiktok/) | Extract metadata from TikTok videos (title, likes, comments_count, bookmarks, shares) | ✅ 
 | [`yt-channel`](yt-channel/) | Extract metadata from YouTube channels (name, playlists, videos, shorts and more) | ✅
+| [`tiktok-page`](tiktok-page/) | Extract metadata from Tiktok Page | ⏳
 
