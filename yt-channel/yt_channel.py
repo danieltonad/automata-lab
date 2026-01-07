@@ -669,7 +669,7 @@ async def grab_channel_info(url: str) -> None:
 
 async def main():
     if len(sys.argv) < 2:
-        print("Usage: python yt-channel.py <channel_name_or_link_or_id>")
+        print("Usage: python yt_channel.py <channel_name_or_link_or_id>")
         sys.exit(1)
     channel_input = sys.argv[1]
     await grab_channel_info(normalize_yt_channel(channel_input))
