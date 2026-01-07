@@ -1,4 +1,4 @@
-import asyncio, argparse, sys, math, random, time
+import asyncio, argparse, sys, math, time
 import psutil, re
 from pathlib import Path
 from playwright.async_api import async_playwright
