@@ -143,12 +143,6 @@ async def fetch_tiktok_metadata(url: str, page, retry: int = 0) -> TiktokMetadat
         title, tags = description_sanitize(description)
         author = get_author_from_url(url)
 
-        # comment_button = page.get_by_role("button", name=re.compile("Read or add comments"))
-        # await comment_button.first.click()
-        # await asyncio.sleep(1.2)
-        # comment_block = page.locator('div[class="TUXTabBar-content"]').first
-        # comments = await comment_block.locator('span[data-e2e="comment-level-1"]').all_inner_texts()
-
         return TiktokMetadata(
             link=url,
             title=title,
