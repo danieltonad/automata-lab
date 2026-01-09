@@ -10,6 +10,7 @@ from typing import List, Set, Tuple
 class TiktokPageMetadata:
     name: str
     author: str
+    page_image: str
     following: str
     followers: str
     likes: str
@@ -68,26 +69,39 @@ async def pull_info_from_page(page, url: str) -> TiktokPageMetadata:
     followers = await page.locator('strong[data-e2e="followers-count"]').inner_text()
     likes = await page.locator('strong[data-e2e="likes-count"]').inner_text()
     bio = await page.locator('h2[data-e2e="user-bio"]').inner_text()
-    # link = await page.locator('span[class="css-1u5503g-5e6d46e3--SpanLink e1dvixx72"]').inner_text()
+    link_elements = await page.locator('span[class*="SpanLink"]').all()
+    link = await link_elements[0].inner_text() if link_elements else None
+    page_image = await page.locator('div > span > img').first.get_attribute('src')
 
-    await page.click('body')
-    await page.keyboard.press("ArrowDown")
-    loading = await page.locator('svg circle[stroke="#3AF2FF"]').is_visible()
-    await page.mouse.wheel(0, 5000)
-    await asyncio.sleep(5)
-    print("Loading indicator visible:", loading)
-    loading = await page.locator('svg circle[stroke="#3AF2FF"]').is_visible()
-    print("Loading indicator visible:", loading)
-    await page.keyboard.press("ArrowDown")
+
+    # await page.evaluate("""
+    #     async () => {
+    #         let lastHeight = 0;
+
+    #         while (true) {
+    #             window.scrollBy(0, window.innerHeight);
+    #             await new Promise(r => setTimeout(r, 500));
+
+    #             const newHeight = document.body.scrollHeight;
+    #             if (newHeight === lastHeight) break;
+    #             lastHeight = newHeight;
+    #         }
+    #     }
+    #     """)
+
+    # await asyncio.sleep(5)
+    # loading = await page.locator('svg circle[stroke="#3AF2FF"]').is_visible()
+    # print("Loading indicator visible:", loading)
 
     return TiktokPageMetadata(
         name=name,
         author=author,
+        page_image=page_image,
         following=following,
         followers=followers,
         likes=likes,
         bio=bio,
-        link=None
+        link=link
     )
 
 
