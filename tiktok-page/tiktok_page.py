@@ -1,9 +1,9 @@
-import asyncio, argparse, sys, math, time, re
+import asyncio, sys, time
 from pathlib import Path
 from playwright.async_api import async_playwright
 from playwright_stealth import Stealth
 from dataclasses import dataclass
-from typing import List, Dict, Set, Tuple
+from typing import List
 
 
 @dataclass
@@ -92,7 +92,6 @@ async def pull_reposts(page, url: str) -> List[str]:
     try:
         await page.locator('p[data-e2e="repost-tab"]').click()
     except:
-        print("No reposts tab found.")
         return []
 
     await page.locator('div[data-e2e="user-repost-item-list"]').click()
@@ -198,15 +197,17 @@ async def pull_metadata_from_page(page, url: str) -> TiktokPageMetadata:
     )
 
 
-
 async def fetch_tiktok_page_metadata(url: str) -> None:
     async with async_playwright() as p:
+        start = time.time()
         browser = await p.chromium.launch(headless=False)
         context = await browser.new_context()
         await Stealth().apply_stealth_async(context)
         page = await context.new_page()
         metadata = await pull_metadata_from_page(page, url)
         metadata.reposts = await pull_reposts(page, url)
+        stop = time.time()
+        print(f"{Colors.GRAY} saved to tiktok_page_metadata.json {Colors.GREEN}[{time_taken(start, stop)}]{Colors.RESET}")
         save_tiktok_metadata_json(metadata, Path("tiktok_page_metadata.json"))
         await browser.close()
 
